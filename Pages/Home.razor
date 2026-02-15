@@ -50,7 +50,7 @@
     </label>
 
     <button @onclick="PlayRandomUnplayed" disabled="@GameWon">Play</button>
-    <button @onclick="ClearLevel">Clear</button>
+    <button @onclick="ResetLevelAndUpdateUI">Reset Level</button>
 
     @if (GameWon)
     {
@@ -247,6 +247,7 @@
 
     private void PlayNextLevel()
     {
+        ResetLevel();
         PlayRandomUnplayed();
     }
 
@@ -281,8 +282,26 @@
 
     private async Task RunBlockStacks()
     {
-        StatusMessage = await BlockExecution.RunBlockStacks();
+        // Reset the level to initial state before execution
+        ResetLevel();
+
+        StatusMessage = await BlockExecution.RunBlockStacks(() => StateHasChanged());
         StateHasChanged();
+    }
+
+    private void ResetLevel()
+    {
+        if (!string.IsNullOrWhiteSpace(LevelLoader.LastLevelLine))
+        {
+            LevelLoader.LoadLevelLine(LevelLoader.LastLevelLine);
+            VehicleMovement.Reset();
+        }
+    }
+
+    private void ResetLevelAndUpdateUI()
+    {
+        ResetLevel();
+        StatusMessage = "Level reset to initial state.";
     }
 
     // Helper Methods
