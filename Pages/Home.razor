@@ -12,33 +12,6 @@
 
 <PageTitle>Grid Runner</PageTitle>
 
-<div class="controls" style="gap:10px; display:flex; flex-wrap:wrap; align-items:center;">
-    <input style="width:260px;" @bind="HubUrl" placeholder="Hub URL (http://localhost5018/gamehub)" />
-    <button @onclick="CreateRoom" disabled="@IsConnected">Create Room</button>
-
-    <input style="width:120px;" @bind="JoinCode" placeholder="Code" />
-    <button @onclick="JoinRoom" disabled="@IsConnected">Join Room</button>
-
-    <span>Room: <b>@RoomCode</b></span>
-    <span>Role: <b>@Role</b></span>
-</div>
-
-@if (Role == "Controller")
-{
-    <div class="controls">
-        <button @onclick="@(() => SendBlock("Up"))">Up</button>
-        <button @onclick="@(() => SendBlock("Down"))">Down</button>
-        <button @onclick="@(() => SendBlock("Left"))">Left</button>
-        <button @onclick="@(() => SendBlock("Right"))">Right</button>
-        <button @onclick="@(() => SendBlock("CW"))">CW</button>
-        <button @onclick="@(() => SendBlock("CCW"))">CCW</button>
-    </div>
-
-    <div style="margin-bottom:14px;">
-        Board says: <b>@LastBoardStatus</b>
-    </div>
-}
-
 <div class="controls">
     <label>
         Difficulty:
@@ -86,7 +59,6 @@
 }
 
 <div class="main-layout">
-    @if (Role == "Controller") {
     <div class="panel">
         <details class="drop" open>
             <summary class="drop-title">Move</summary>
@@ -158,9 +130,7 @@
             <GridRunner.Components.CodeBlock block="b" onPointerDown="OnBlockPointerDown" isExecuting="@(currentlyExecutingBlockId == b.Id)" />
         }
     </div>
-    }
 
-    @if (Role != "Controller") {
     <div class="grid-wrapper">
         @{
             var (prefix, _, cellSizePx, cols) = GetGridRenderInfo();
@@ -180,7 +150,6 @@
             @RenderGrid()
         </div>
     </div>
-    }
 </div>
 
 @code {
@@ -386,9 +355,9 @@
         font-weight: 600;
     }
 
-    .status.win {
-        font-size: 18px;
-    }
+        .status.win {
+            font-size: 18px;
+        }
 
     .main-layout {
         display: flex;
@@ -437,9 +406,9 @@
         margin-bottom: 4px;
     }
 
-    .panel-block:active {
-        cursor: grabbing;
-    }
+        .panel-block:active {
+            cursor: grabbing;
+        }
 
     .stage {
         position: relative;
@@ -486,15 +455,26 @@
         cursor: pointer;
     }
 
-    .cell.selected {
-        outline: 4px solid rgba(0,0,0,0.55);
-        outline-offset: -4px;
+        .cell.selected {
+            outline: 4px solid rgba(0,0,0,0.55);
+            outline-offset: -4px;
+        }
+
+    .occupied.veh-red {
+        background-color: #ff6b6b;
     }
 
-    .occupied.veh-red { background-color: #ff6b6b; }
-    .occupied.veh-green { background-color: #5fe37a; }
-    .occupied.veh-blue { background-color: #6ea8fe; }
-    .occupied.veh-yellow { background-color: #ffe066; }
+    .occupied.veh-green {
+        background-color: #5fe37a;
+    }
+
+    .occupied.veh-blue {
+        background-color: #6ea8fe;
+    }
+
+    .occupied.veh-yellow {
+        background-color: #ffe066;
+    }
 
     .veh-label {
         position: absolute;
@@ -505,10 +485,21 @@
         pointer-events: none;
     }
 
-    .cell.exit.exit-A { border-left-color: white; }
-    .cell.exit.exit-B { border-top-color: white; }
-    .cell.exit.exit-C { border-right-color: white; }
-    .cell.exit.exit-D { border-bottom-color: white; }
+    .cell.exit.exit-A {
+        border-left-color: white;
+    }
+
+    .cell.exit.exit-B {
+        border-top-color: white;
+    }
+
+    .cell.exit.exit-C {
+        border-right-color: white;
+    }
+
+    .cell.exit.exit-D {
+        border-bottom-color: white;
+    }
 
     .grid-container.exit-B::before,
     .grid-container.exit-D::before {
@@ -522,8 +513,13 @@
         z-index: 10;
     }
 
-    .grid-container.exit-B::before { top: -2px; }
-    .grid-container.exit-D::before { bottom: -2px; }
+    .grid-container.exit-B::before {
+        top: -2px;
+    }
+
+    .grid-container.exit-D::before {
+        bottom: -2px;
+    }
 
     .grid-container.exit-A::before,
     .grid-container.exit-C::before {
@@ -537,6 +533,11 @@
         z-index: 10;
     }
 
-    .grid-container.exit-A::before { left: -2px; }
-    .grid-container.exit-C::before { right: -2px; }
+    .grid-container.exit-A::before {
+        left: -2px;
+    }
+
+    .grid-container.exit-C::before {
+        right: -2px;
+    }
 </style>
