@@ -5,6 +5,7 @@
         public int Id { get; set; }
         public double X { get; set; }
         public double Y { get; set; }
+        public string FillColor { get; set; }
         public bool Locked { get; set; }
         public bool isFixed { get; set; }
         public string Description { get; set; }
