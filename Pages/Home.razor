@@ -1,7 +1,1400 @@
 ﻿@page "/"
+@using GridRunner.Blocks
+@using GridRunner.Enums
+@using GridRunner.Interfaces
+@inject IJSRuntime JS
 
 <PageTitle>Home</PageTitle>
 
 <h1>Hello, world!</h1>
 
-Welcome to your new app.
+<div class="controls">
+    <label>
+        Difficulty:
+        <select @bind="SelectedDifficulty">
+            <option value="Easy">Easy (4x4)</option>
+            <option value="Medium">Medium (5x5)</option>
+            <option value="Hard">Hard (6x6)</option>
+        </select>
+    </label>
+
+    <button @onclick="PlayRandomUnplayed" disabled="@GameWon">Play</button>
+    <button @onclick="ClearLevel">Clear</button>
+
+    @if (GameWon)
+    {
+        <button @onclick="PlayAgain">Play Again</button>
+        <button @onclick="PlayNextLevel">Play Next Level</button>
+    }
+</div>
+
+<div class="controls">
+    <button @onclick="RunBlockStacks" disabled="@GameWon">Execute Blocks</button>
+    <span class="selected-info">
+        @if (HasSelection)
+        {
+            <span>Selected: @SelectedVehicleDisplay</span>
+        }
+        else
+        {
+            <span>Selected: (none) — click a vehicle on the grid</span>
+        }
+    </span>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(StatusMessage))
+{
+    <div class="status @(GameWon ? "win" : "")">@StatusMessage</div>
+}
+
+@if (CurrentLevelIndex.HasValue)
+{
+    <div style="font-weight:600; margin-bottom:6px;">
+        Level Index: @(CurrentLevelIndex + 1)
+    </div>
+}
+
+<div class="main-layout">
+    <div class="panel">
+        <details class="drop" open>
+            <summary class="drop-title">Move</summary>
+            <div class="drop-body">
+                @foreach (var value in Enum.GetValues(typeof(MoveActionEnum)))
+                {
+                    <div class="panel-block"
+                         @onpointerdown="(e) => OnPalettePointerDown(e, typeof(MoveBlock), (MoveActionEnum)value)">
+                        <svg width="90" height="90" viewBox="0 0 92 92">
+                            <path d="M 1 1 L 15 1 L 15 15 L 30 1 L 91 1 L 91 75 L 30 75 L 15 91 L 15 75 L 1 75 Z"
+                                  fill="@PaletteGray" stroke="#000000" stroke-width="1" />
+                            <text x="46" y="45" text-anchor="middle" font-size="14" font-weight="bold">@value.ToString()</text>
+                        </svg>
+                    </div>
+                }
+            </div>
+        </details>
+
+        <details class="drop" open>
+            <summary class="drop-title">Rotate</summary>
+            <div class="drop-body">
+                @foreach (var value in Enum.GetValues(typeof(RotateActionEnum)))
+                {
+                    <div class="panel-block"
+                         @onpointerdown="(e) => OnPalettePointerDown(e, typeof(RotateBlock), (RotateActionEnum)value)">
+                        <svg width="90" height="90" viewBox="0 0 92 92">
+                            <path d="M 1 1 L 15 1 L 15 15 L 30 1 L 91 1 L 91 75 L 30 75 L 15 91 L 15 75 L 1 75 Z"
+                                  fill="@PaletteGray" stroke="#000000" stroke-width="1" />
+                            <text x="46" y="45" text-anchor="middle" font-size="12" font-weight="bold">@(value.ToString() == "Clockwise" ? "CW" : "CCW")</text>
+                        </svg>
+                    </div>
+                }
+            </div>
+        </details>
+    </div>
+
+    <div class="stage" @ref="stageRef"
+         @onpointermove="OnStagePointerMove"
+         @onpointerup="OnStagePointerUp"
+         @onpointercancel="OnStagePointerUp">
+
+        @if (hoverActive)
+        {
+            <div class="ghost"
+                 style="left:@($"{hoverX}px"); top:@($"{hoverY}px");">
+                <svg width="90" height="90" viewBox="0 0 92 92">
+                    <path d="M 1 1 L 15 1 L 15 15 L 30 1 L 91 1 L 91 75 L 30 75 L 15 91 L 15 75 L 1 75 Z"
+                          fill="transparent" stroke="#000000" stroke-width="3" />
+                </svg>
+            </div>
+        }
+
+        @foreach (var b in blocks)
+        {
+            <GridRunner.Components.CodeBlock block="b" onPointerDown="OnBlockPointerDown" />
+        }
+    </div>
+
+    <div class="grid-wrapper">
+        @{
+            var (prefix, _, cellSizePx, cols) = GetGridRenderInfo();
+            var (exitRow, exitCol) = GetExitRowCol(prefix);
+            string exitClass = ExitSide.HasValue ? $"exit-{ExitSide.Value}" : "";
+
+            string gridStyle =
+                $"--cell-size:{cellSizePx}px;" +
+                $"--cols:{cols};" +
+                $"--exit-row:{exitRow};" +
+                $"--exit-col:{exitCol};" +
+                $"display:grid; grid-template-columns:repeat({cols},{cellSizePx}px);" +
+                $"grid-auto-rows:{cellSizePx}px;";
+        }
+
+        <div class="grid-container @GridCssClass @exitClass" style="@gridStyle">
+            @RenderGrid()
+        </div>
+    </div>
+</div>
+
+@code {
+    private string SelectedDifficulty = "Easy";
+    private string StatusMessage = "";
+
+    private char? ExitSide;
+    private string? ExitCellKey;
+
+    private string? _queueDifficulty;
+
+    private readonly List<Vehicle> Vehicles = new();
+
+    private int? SelectedVehicleIndex;
+    private bool HasSelection => SelectedVehicleIndex.HasValue && SelectedVehicleIndex.Value >= 0 && SelectedVehicleIndex.Value < Vehicles.Count;
+    private string SelectedVehicleDisplay => HasSelection
+        ? $"{Vehicles[SelectedVehicleIndex!.Value].Type} ({Vehicles[SelectedVehicleIndex!.Value].Color})"
+        : "(none)";
+
+    private bool GameWon = false;
+    private string? LastLevelLine;
+
+    private readonly List<string> EasyCells = BuildCells(4, 4);
+    private readonly List<string> MediumCells = BuildCells(5, 5);
+    private readonly List<string> HardCells = BuildCells(6, 6);
+
+    private string GridCssClass => SelectedDifficulty switch
+    {
+        "Easy" => "easy",
+        "Medium" => "medium",
+        "Hard" => "hard",
+        _ => "easy"
+    };
+
+    private void LoadSampleLine()
+    {
+        string sample = "A,1A;P,R,3C,4C;C,B,2A,2B;C,G,3A,4A;T,Y,1D,4D";
+        LoadLevelLine(sample);
+    }
+
+    private void PlayAgain()
+    {
+        if (!string.IsNullOrWhiteSpace(LastLevelLine))
+            LoadLevelLine(LastLevelLine!);
+        else
+            ClearLevel();
+    }
+
+    private void PlayNextLevel() {
+        PlayRandomUnplayed();
+    }
+
+    private void ClearLevel()
+    {
+        Vehicles.Clear();
+        blocks.Clear();
+        nextBlockId = 0;
+        ExitSide = null;
+        ExitCellKey = null;
+        SelectedVehicleIndex = null;
+        GameWon = false;
+        StatusMessage = "Cleared.";
+    }
+
+    private static readonly List<string> EasyLevelLines = new() {
+    "C,2D;P,Y,2A,2B;C,R,1C,2C;C,G,3B,3C;C,B,4C,4D",
+    "C,3D;P,Y,3A,3B;C,R,2C,3C;C,G,1B,1C;C,B,1D,2D",
+    "A,2A;P,Y,2C,2D;C,R,1B,2B;C,G,1C,1D;C,B,4C,4D",
+    "B,1C;P,Y,2C,3C;C,R,1B,1C;C,G,3A,4A;C,B,4B,4C",
+    "D,4B;P,Y,2B,3B;C,R,4A,4B;C,G,1D,2D;C,B,1A,1B",
+    "C,1D;P,Y,1A,1B;C,R,1C,2C;C,G,3A,3B;C,B,4B,4C",
+    "A,4A;P,Y,4C,4D;C,R,3B,4B;C,G,2C,2D;C,B,1A,2A",
+    "B,1A;P,Y,3A,4A;C,R,2A,2B;C,G,1C,2C;C,B,4C,4D",
+    "D,4D;P,Y,2D,3D;C,R,4C,4D;C,G,1B,2B;C,B,3A,3B",
+    "C,4D;P,Y,4A,4B;C,R,3C,4C;C,G,2B,2C;C,B,1D,2D",
+    };
+
+    private static readonly List<string> MediumLevelLines = new() {
+    "C,3E;P,Y,3B,3C;C,R,2D,3D;C,G,1C,1D;B,B,1A,3A;C,B,4C,4D;T,R,5B,5E",
+    "C,2E;P,Y,2B,2C;C,R,1D,2D;C,G,3C,4C;B,B,3A,5A;C,B,4D,5D;T,G,1A,1D",
+    "C,4E;P,Y,4B,4C;C,R,3D,4D;C,G,2C,2D;B,B,1A,3A;C,B,5C,5D;T,R,1B,1E",
+    "C,3E;P,Y,3B,3C;C,R,3D,4D;C,G,1B,1C;B,B,2A,4A;C,B,5B,5C;T,G,1D,4D",
+    "C,2E;P,Y,2B,2C;C,R,2D,3D;C,G,4B,4C;B,B,1A,3A;C,B,5C,5D;T,R,4D,4A",
+    "C,3E;P,Y,3B,3C;C,R,2D,3D;C,G,4C,5C;B,B,1B,3B;C,B,1D,1E;T,G,5A,5D",
+    "C,4E;P,Y,4B,4C;C,R,4D,5D;C,G,2B,3B;B,B,1A,3A;C,B,1D,2D;T,R,5A,5D",
+    "C,3E;P,Y,3B,3C;C,R,1D,2D;C,G,4D,5D;B,B,2A,4A;C,B,5B,5C;T,G,1A,1D",
+    "C,2E;P,Y,2B,2C;C,R,3D,4D;C,G,1C,1D;B,B,3A,5A;C,B,4B,4C;T,R,5B,5E",
+    "C,4E;P,Y,4B,4C;C,R,2D,3D;C,G,1B,1C;B,B,2A,4A;C,B,5D,5E;T,G,5A,5D",
+    };
+
+    private static readonly List<string> HardLevelLines = new() {    
+    "C,3F;P,Y,3C,3D;C,R,2E,3E;C,G,4D,4E;B,B,1B,3B;T,R,6A,6D;B,G,4A,6A;C,B,5E,5F",
+    "C,4F;P,Y,4C,4D;C,R,3E,4E;C,G,2C,2D;B,B,1A,3A;T,G,6B,6E;B,R,2F,4F;C,B,5C,5D",
+    "C,2F;P,Y,2C,2D;C,R,2E,3E;C,G,4B,4C;B,B,1D,3D;T,R,6A,6D;B,G,3A,5A;C,B,5E,5F;C,R,1A,1B",
+    "C,3F;P,Y,3C,3D;C,R,1E,2E;C,G,4E,5E;B,B,2B,4B;T,G,6C,6F;B,R,1A,3A;C,B,5C,5D",
+    "C,4F;P,Y,4C,4D;C,R,4E,5E;C,G,2D,3D;B,B,1B,3B;T,R,6A,6D;B,G,3A,5A;C,B,2F,3F;C,R,1E,1F",
+    "C,2F;P,Y,2C,2D;C,R,3D,4D;C,G,1C,1D;B,B,4A,6A;T,G,6B,6E;B,R,1E,3E;C,B,5C,5D",
+    "C,3F;P,Y,3C,3D;C,R,2E,3E;C,G,5B,5C;B,B,1B,3B;T,R,6A,6D;B,G,3A,5A;C,B,4D,4E;C,R,1F,2F",
+    "C,4F;P,Y,4C,4D;C,R,3C,3D;C,G,2E,3E;B,B,1A,3A;T,G,6B,6E;B,R,4A,6A;C,B,5D,5E",
+    "C,2F;P,Y,2C,2D;C,R,2E,3E;C,G,4C,4D;B,B,1D,3D;T,R,6A,6D;B,G,3A,5A;C,B,5E,5F",
+    "C,3F;P,Y,3C,3D;C,R,4D,5D;C,G,2B,2C;B,B,1B,3B;T,G,6C,6F;B,R,2E,4E;C,B,5A,5B;C,R,1E,1F",
+    };
+
+    private readonly Random _rng = new();
+    private List<string> _currentPack = new();
+ private Queue<(string line, int index)> _playQueue = new();
+
+    private void EnsurePackLoadedForDifficulty() {
+        _currentPack = SelectedDifficulty switch {
+            "Easy" => EasyLevelLines,
+            "Medium" => MediumLevelLines,
+            "Hard" => HardLevelLines,
+            _ => EasyLevelLines
+        };
+
+        if (_queueDifficulty != SelectedDifficulty) {
+            _queueDifficulty = SelectedDifficulty;
+            RefillAndShuffleQueue();
+            return;
+        }
+
+        if (_playQueue.Count == 0) RefillAndShuffleQueue();
+    }
+
+    private int? CurrentLevelIndex = null;
+
+private void RefillAndShuffleQueue()
+{
+    // Pair each level string with its original index in the pack
+    var indexed = _currentPack
+        .Select((line, index) => (line, index))
+        .ToList();
+
+    // Shuffle the list in-place (Fisher–Yates)
+    for (int i = indexed.Count - 1; i > 0; i--)
+    {
+        int j = _rng.Next(i + 1);
+        (indexed[i], indexed[j]) = (indexed[j], indexed[i]);
+    }
+
+    // Keep both the shuffled lines and their original indices
+    _playQueue = new Queue<(string line, int index)>(indexed);
+}
+
+private void PlayRandomUnplayed()
+{
+    EnsurePackLoadedForDifficulty();
+
+    if (_playQueue.Count == 0)
+        RefillAndShuffleQueue();
+
+    var next = _playQueue.Dequeue();
+    CurrentLevelIndex = next.index;
+
+    LoadLevelLine(next.line);
+}
+
+    private void LoadLevelLine(string line) {
+        try {
+            Vehicles.Clear();
+            ExitSide = null;
+            ExitCellKey = null;
+            SelectedVehicleIndex = null;
+            GameWon = false;
+            StatusMessage = "";
+
+            LastLevelLine = line;
+
+            var parts = line.Split(';', StringSplitOptions.RemoveEmptyEntries)
+                            .Select(p => p.Trim())
+                            .ToArray();
+
+            if (parts.Length < 2)
+            {
+                StatusMessage = "Invalid level line: expected Side,Cell;vehicle;vehicle;...";
+                return;
+            }
+
+            var (prefix, validCells, _, _) = GetGridRenderInfo();
+
+            var exitTokens = parts[0].Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                     .Select(t => t.Trim())
+                                     .ToArray();
+
+            if (exitTokens.Length != 2)
+            {
+                StatusMessage = "Exit must be in format: Side,Cell (ex: A,1A)";
+                return;
+            }
+
+            ExitSide = char.ToUpperInvariant(exitTokens[0][0]);
+            string exitCellLabel = exitTokens[1].ToUpper();
+
+            if (!validCells.Contains(exitCellLabel))
+            {
+                StatusMessage = $"Exit cell '{exitCellLabel}' is not valid for {SelectedDifficulty}.";
+                return;
+            }
+
+            ExitCellKey = prefix + exitCellLabel;
+
+            for (int p = 1; p < parts.Length; p++)
+            {
+                var tokens = parts[p].Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                     .Select(t => t.Trim())
+                                     .ToArray();
+
+                if (tokens.Length != 4)
+                {
+                    StatusMessage = $"Vehicle section must be exactly 4 tokens: Type,Color,Start,End. Bad section: '{parts[p]}'";
+                    return;
+                }
+
+                char type = ParseType(tokens[0]);
+                char color = ParseColor(tokens[1]);
+                string start = tokens[2].ToUpper();
+                string end = tokens[3].ToUpper();
+
+                if (!validCells.Contains(start) || !validCells.Contains(end))
+                {
+                    StatusMessage = $"Vehicle has invalid start/end cell: {start} -> {end}.";
+                    return;
+                }
+
+                var occupiedLabels = BuildOccupiedCellsFromStartEnd(start, end);
+                if (occupiedLabels == null || occupiedLabels.Count == 0)
+                {
+                    StatusMessage = $"Vehicle start/end must be in same row or same column: {start} -> {end}.";
+                    return;
+                }
+
+                int expectedLen = ExpectedLength(type);
+                if (expectedLen > 0 && occupiedLabels.Count != expectedLen)
+                {
+                    StatusMessage = $"Vehicle {type} expected length {expectedLen} but got {occupiedLabels.Count} from {start}->{end}.";
+                    return;
+                }
+
+                var occupiedKeys = occupiedLabels.Select(lbl => prefix + lbl).ToList();
+
+                var allOccupied = Vehicles.SelectMany(v => v.Cells).ToHashSet();
+                if (occupiedKeys.Any(allOccupied.Contains))
+                {
+                    StatusMessage = $"Collision: vehicle {type} overlaps an existing vehicle.";
+                    return;
+                }
+
+                Vehicles.Add(new Vehicle
+                {
+                    Type = type,
+                    Color = color,
+                    CssClass = CssClassForColor(color),
+                    Cells = occupiedKeys
+                });
+            }
+
+            GenerateStartBlocksForVehicles();
+            StatusMessage = $"Loaded level: vehicles={Vehicles.Count}.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Parse error: {ex.Message}";
+        }
+    }
+
+    private void GenerateStartBlocksForVehicles()
+    {
+        // Clear all existing blocks
+        blocks.Clear();
+        nextBlockId = 0;
+
+        // Generate a start block for each vehicle
+        for (int i = 0; i < Vehicles.Count; i++)
+        {
+            var vehicle = Vehicles[i];
+            var startBlock = new StartBlock()
+            {
+                Id = nextBlockId++,
+                X = 40 + (i * 120), // Space them horizontally
+                Y = 40,
+                Locked = true,
+                ParentId = null,
+                FillColor = vehicle.CssClass switch
+                {
+                    "veh-red" => "#ff6b6b",
+                    "veh-green" => "#5fe37a",
+                    "veh-blue" => "#6ea8fe",
+                    "veh-yellow" => "#ffe066",
+                    _ => "#00ff00"
+                },
+                VehicleIndex = i,
+                Description = $"{vehicle.Type}-{vehicle.Color}"
+            };
+            blocks.Add(startBlock);
+        }
+    }
+
+    private void SelectVehicleAtCell(string cellKey)
+    {
+        if (GameWon) return;
+
+        for (int i = 0; i < Vehicles.Count; i++)
+        {
+            if (Vehicles[i].Cells.Contains(cellKey))
+            {
+                SelectedVehicleIndex = i;
+                StatusMessage = $"Selected: {Vehicles[i].Type} ({Vehicles[i].Color})";
+                return;
+            }
+        }
+
+        SelectedVehicleIndex = null;
+        StatusMessage = "Selected: (none)";
+    }
+
+    private void MoveSelectedLeft() => MoveSelected(dx: -1, dy: 0);
+    private void MoveSelectedRight() => MoveSelected(dx: +1, dy: 0);
+    private void MoveSelectedUp() => MoveSelected(dx: 0, dy: -1);
+    private void MoveSelectedDown() => MoveSelected(dx: 0, dy: +1);
+
+    private void MoveSelected(int dx, int dy)
+    {
+        if (!HasSelection || GameWon) return;
+
+        var (prefix, validCells, _, _) = GetGridRenderInfo();
+        var v = Vehicles[SelectedVehicleIndex!.Value];
+
+        var labels = v.Cells.Select(k => StripPrefix(k, prefix)).ToList();
+        var orientation = GetOrientation(labels);
+
+        if (orientation == Orientation.Horizontal && dy != 0)
+        {
+            StatusMessage = "Blocked: horizontal vehicles can only move left/right.";
+            return;
+        }
+
+        if (orientation == Orientation.Vertical && dx != 0)
+        {
+            StatusMessage = "Blocked: vertical vehicles can only move up/down.";
+            return;
+        }
+
+        bool anyOutOfBounds = false;
+        var movedLabels = new List<string>(labels.Count);
+
+        foreach (var lbl in labels)
+        {
+            var (r, c) = ParseCell(lbl);
+            int nr = r + dy;
+            int nc = c + dx;
+            var newLbl = ToCell(nr, nc);
+
+            if (!validCells.Contains(newLbl))
+                anyOutOfBounds = true;
+
+            movedLabels.Add(newLbl);
+        }
+
+        if (anyOutOfBounds)
+        {
+            if (TryWinByExiting(v, labels, dx, dy, prefix))
+            {
+                GameWon = true;
+                StatusMessage = "You win! Press Play Again to reset.";
+                SelectedVehicleIndex = null;
+                return;
+            }
+
+            StatusMessage = "Blocked: out of bounds.";
+            return;
+        }
+
+        var movedKeys = movedLabels.Select(l => prefix + l).ToList();
+
+        if (!IsMoveCollisionFree(SelectedVehicleIndex.Value, movedKeys))
+        {
+            StatusMessage = "Blocked: another vehicle is in the way.";
+            return;
+        }
+
+        v.Cells = movedKeys;
+        StatusMessage = "Moved.";
+    }
+
+    private bool TryWinByExiting(Vehicle v, List<string> currentLabels, int dx, int dy, string prefix)
+    {
+        if (v.Type != 'P') return false;
+        if (!ExitSide.HasValue || ExitCellKey == null) return false;
+
+        bool movingOut =
+            (ExitSide.Value == 'A' && dx == -1 && dy == 0) ||
+            (ExitSide.Value == 'C' && dx == +1 && dy == 0) ||
+            (ExitSide.Value == 'B' && dx == 0 && dy == -1) ||
+            (ExitSide.Value == 'D' && dx == 0 && dy == +1);
+
+        if (!movingOut) return false;
+
+        var orientation = GetOrientation(currentLabels);
+        bool orientedForExit =
+            ((ExitSide.Value == 'A' || ExitSide.Value == 'C') && orientation == Orientation.Horizontal) ||
+            ((ExitSide.Value == 'B' || ExitSide.Value == 'D') && orientation == Orientation.Vertical);
+
+        if (!orientedForExit) return false;
+
+        string exitLabel = StripPrefix(ExitCellKey, prefix);
+        if (!currentLabels.Contains(exitLabel)) return false;
+
+        string edgeMost = GetEdgeMostCellInDirection(currentLabels, dx, dy);
+        if (edgeMost != exitLabel) return false;
+
+        int size = GetSizeForDifficulty();
+        var (er, ec) = ParseCell(exitLabel);
+
+        bool exitOnEdge =
+            (ExitSide.Value == 'A' && ec == 0) ||
+            (ExitSide.Value == 'C' && ec == size - 1) ||
+            (ExitSide.Value == 'B' && er == 1) ||
+            (ExitSide.Value == 'D' && er == size);
+
+        return exitOnEdge;
+    }
+
+    private static string GetEdgeMostCellInDirection(List<string> labels, int dx, int dy)
+    {
+        var coords = labels.Select(lbl => (lbl, rc: ParseCell(lbl))).ToList();
+
+        if (dx == -1) return coords.OrderBy(x => x.rc.col).First().lbl;
+        if (dx == +1) return coords.OrderByDescending(x => x.rc.col).First().lbl;
+        if (dy == -1) return coords.OrderBy(x => x.rc.row).First().lbl;
+        return coords.OrderByDescending(x => x.rc.row).First().lbl;
+    }
+
+    private int GetSizeForDifficulty() => SelectedDifficulty switch
+    {
+        "Easy" => 4,
+        "Medium" => 5,
+        "Hard" => 6,
+        _ => 4
+    };
+
+    private void RotateSelectedCounterClockwise() => RotateSelected(isClockwise: false);
+    private void RotateSelectedClockwise() => RotateSelected(isClockwise: true);
+
+    private void RotateSelected(bool isClockwise)
+    {
+        if (!HasSelection || GameWon) return;
+
+        var (prefix, validCells, _, _) = GetGridRenderInfo();
+        var v = Vehicles[SelectedVehicleIndex!.Value];
+
+        var oldLabels = v.Cells.Select(k => StripPrefix(k, prefix)).ToList();
+
+        if (GetOrientation(oldLabels) == Orientation.Unknown)
+        {
+            StatusMessage = "Rotate blocked: not a straight vehicle.";
+            return;
+        }
+
+        string pivotLabel = oldLabels[0];
+        var (pr, pc) = ParseCell(pivotLabel);
+
+        var newLabels = new List<string>(oldLabels.Count);
+
+        foreach (var lbl in oldLabels)
+        {
+            var (r, c) = ParseCell(lbl);
+            int dr = r - pr;
+            int dc = c - pc;
+
+            int ndr, ndc;
+
+            if (isClockwise)
+            {
+                ndr = dc;
+                ndc = -dr;
+            }
+            else
+            {
+                ndr = -dc;
+                ndc = dr;
+            }
+
+            int nr = pr + ndr;
+            int nc = pc + ndc;
+
+            newLabels.Add(ToCell(nr, nc));
+        }
+
+        foreach (var lbl in newLabels)
+        {
+            if (!validCells.Contains(lbl))
+            {
+                StatusMessage = "Rotate blocked: out of bounds.";
+                return;
+            }
+        }
+
+        var newKeys = newLabels.Select(l => prefix + l).ToList();
+
+        if (!IsMoveCollisionFree(SelectedVehicleIndex.Value, newKeys))
+        {
+            StatusMessage = "Rotate blocked: destination occupied.";
+            return;
+        }
+
+        if (!IsRotationSweepClear(SelectedVehicleIndex.Value, prefix, oldLabels, newLabels))
+        {
+            StatusMessage = "Rotate blocked: swing path occupied.";
+            return;
+        }
+
+        v.Cells = newKeys;
+        StatusMessage = isClockwise ? "Rotated CW." : "Rotated CCW.";
+    }
+
+    private bool IsRotationSweepClear(int movingIndex, string prefix, List<string> oldLabels, List<string> newLabels)
+    {
+        var occupied = new HashSet<string>();
+        for (int i = 0; i < Vehicles.Count; i++)
+        {
+            if (i == movingIndex) continue;
+            foreach (var k in Vehicles[i].Cells)
+                occupied.Add(k);
+        }
+
+        var pivot = oldLabels[0];
+
+        for (int i = 1; i < oldLabels.Count; i++)
+        {
+            var (or, oc) = ParseCell(oldLabels[i]);
+            var (nr, nc) = ParseCell(newLabels[i]);
+
+            int rMin = Math.Min(or, nr);
+            int rMax = Math.Max(or, nr);
+            int cMin = Math.Min(oc, nc);
+            int cMax = Math.Max(oc, nc);
+
+            for (int r = rMin; r <= rMax; r++)
+            {
+                for (int c = cMin; c <= cMax; c++)
+                {
+                    var lbl = ToCell(r, c);
+                    if (lbl == pivot) continue;
+
+                    var key = prefix + lbl;
+                    if (occupied.Contains(key))
+                        return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private bool IsMoveCollisionFree(int movingIndex, List<string> newKeys)
+    {
+        var occupied = new HashSet<string>();
+        for (int i = 0; i < Vehicles.Count; i++)
+        {
+            if (i == movingIndex) continue;
+            foreach (var k in Vehicles[i].Cells)
+                occupied.Add(k);
+        }
+        return !newKeys.Any(occupied.Contains);
+    }
+
+    private static string StripPrefix(string key, string prefix)
+    {
+        if (key.StartsWith(prefix, StringComparison.Ordinal))
+            return key.Substring(prefix.Length);
+        return key;
+    }
+
+    private enum Orientation { Unknown, Horizontal, Vertical }
+
+    private static Orientation GetOrientation(List<string> labels)
+    {
+        var coords = labels.Select(ParseCell).ToList();
+        bool sameRow = coords.All(x => x.row == coords[0].row);
+        bool sameCol = coords.All(x => x.col == coords[0].col);
+
+        if (sameRow && !sameCol) return Orientation.Horizontal;
+        if (sameCol && !sameRow) return Orientation.Vertical;
+        return Orientation.Unknown;
+    }
+
+    private static char ParseType(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) throw new Exception("Empty vehicle type.");
+        char t = char.ToUpperInvariant(s.Trim()[0]);
+        if (t is not ('C' or 'B' or 'T' or 'P')) throw new Exception($"Unknown vehicle type '{s}'. Use C,B,T,P.");
+        return t;
+    }
+
+    private static char ParseColor(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) throw new Exception("Empty color.");
+        char c = char.ToUpperInvariant(s.Trim()[0]);
+        if (c is not ('R' or 'G' or 'B' or 'Y')) throw new Exception($"Unknown color '{s}'. Use R,G,B,Y.");
+        return c;
+    }
+
+    private static int ExpectedLength(char type) => type switch
+    {
+        'C' => 2,
+        'B' => 3,
+        'T' => 4,
+        'P' => 2,
+        _ => 0
+    };
+
+    private static List<string>? BuildOccupiedCellsFromStartEnd(string start, string end)
+    {
+        var (sr, sc) = ParseCell(start);
+        var (er, ec) = ParseCell(end);
+
+        if (sr == er && sc != ec)
+        {
+            int step = sc < ec ? 1 : -1;
+            var list = new List<string>();
+            for (int c = sc; c != ec + step; c += step)
+                list.Add(ToCell(sr, c));
+            return list;
+        }
+
+        if (sc == ec && sr != er)
+        {
+            int step = sr < er ? 1 : -1;
+            var list = new List<string>();
+            for (int r = sr; r != er + step; r += step)
+                list.Add(ToCell(r, sc));
+            return list;
+        }
+
+        if (sr == er && sc == ec)
+            return new List<string> { start };
+
+        return null;
+    }
+
+    private static (int row, int col) ParseCell(string cell)
+    {
+        cell = cell.Trim().ToUpper();
+        if (cell.Length < 2) throw new Exception($"Bad cell '{cell}'.");
+
+        string rowPart = cell[..^1];
+        char colChar = cell[^1];
+
+        if (!int.TryParse(rowPart, out int row)) throw new Exception($"Bad row in cell '{cell}'.");
+        if (colChar < 'A' || colChar > 'Z') throw new Exception($"Bad column in cell '{cell}'.");
+
+        int col = colChar - 'A';
+        return (row, col);
+    }
+
+    private static string ToCell(int row, int colIndex)
+    {
+        char col = (char)('A' + colIndex);
+        return $"{row}{col}";
+    }
+
+    private (string Prefix, List<string> Cells, int CellSizePx, int Cols) GetGridRenderInfo()
+    {
+        return SelectedDifficulty switch
+        {
+            "Easy" => ("E-", EasyCells, 75, 4),
+            "Medium" => ("M-", MediumCells, 60, 5),
+            "Hard" => ("H-", HardCells, 50, 6),
+            _ => ("E-", EasyCells, 75, 4)
+        };
+    }
+
+    private (int rowIndex, int colIndex) GetExitRowCol(string prefix)
+    {
+        if (ExitCellKey == null) return (-1, -1);
+        if (!ExitCellKey.StartsWith(prefix, StringComparison.Ordinal)) return (-1, -1);
+
+        string label = ExitCellKey.Substring(prefix.Length);
+        var (row, col) = ParseCell(label);
+        return (row - 1, col);
+    }
+
+    private RenderFragment RenderGrid() => builder =>
+    {
+        var (prefix, cells, _, _) = GetGridRenderInfo();
+        int seq = 0;
+
+        var cellToVehicleIndex = new Dictionary<string, int>();
+        for (int i = 0; i < Vehicles.Count; i++)
+            foreach (var key in Vehicles[i].Cells)
+                cellToVehicleIndex[key] = i;
+
+        foreach (var cell in cells)
+        {
+            var key = prefix + cell;
+
+            bool hasVehicle = cellToVehicleIndex.TryGetValue(key, out var vIndex);
+            Vehicle? vehicle = hasVehicle ? Vehicles[vIndex] : null;
+
+            bool isExit = (ExitCellKey == key);
+            bool isSelected = HasSelection && hasVehicle && vIndex == SelectedVehicleIndex!.Value;
+
+            string classes = "cell";
+            if (vehicle != null) classes += " occupied " + vehicle.CssClass;
+            if (isExit && ExitSide.HasValue) classes += " exit exit-" + ExitSide.Value;
+            if (isSelected) classes += " selected";
+
+            builder.OpenElement(seq++, "div");
+            builder.AddAttribute(seq++, "class", classes);
+            builder.AddAttribute(seq++, "id", key);
+            builder.AddAttribute(seq++, "role", "button");
+            builder.AddAttribute(seq++, "tabindex", "0");
+            builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create(this, () => SelectVehicleAtCell(key)));
+            builder.AddContent(seq++, cell);
+
+            if (vehicle != null && vehicle.Cells.Count > 0 && vehicle.Cells[0] == key)
+            {
+                builder.OpenElement(seq++, "div");
+                builder.AddAttribute(seq++, "class", "veh-label");
+                builder.AddContent(seq++, vehicle.Type.ToString());
+                builder.CloseElement();
+            }
+
+            builder.CloseElement();
+        }
+    };
+
+    private static string CssClassForColor(char color) => color switch
+    {
+        'R' => "veh-red",
+        'G' => "veh-green",
+        'B' => "veh-blue",
+        'Y' => "veh-yellow",
+        _ => "veh-red"
+    };
+
+    private static List<string> BuildCells(int rows, int cols)
+    {
+        var list = new List<string>(rows * cols);
+        for (int r = 1; r <= rows; r++)
+            for (int c = 0; c < cols; c++)
+                list.Add($"{r}{(char)('A' + c)}");
+        return list;
+    }
+
+    private class Vehicle
+    {
+        public char Type { get; set; }
+        public char Color { get; set; }
+        public string CssClass { get; set; } = "";
+        public List<string> Cells { get; set; } = new();
+    }
+
+    #region Block Programming System
+
+    private ElementReference stageRef;
+    private List<Block> blocks = new();
+
+    private const string PaletteGray = "#DDDDDD";
+    private int nextBlockId = 0;
+    private int? activeId = null;
+    private bool dragging = false;
+    private bool activeWasLockedAtDown = false;
+    private double grabOffsetX = 0;
+    private double grabOffsetY = 0;
+    private double stageLeft = 0;
+    private double stageTop = 0;
+
+    private bool hoverActive = false;
+    private double hoverX = 0;
+    private double hoverY = 0;
+    private int? hoverAnchorId = null;
+
+    private const double StackStepY = 71;
+
+    private List<List<Block>> blockStacks = new();
+
+    private async void OnBlockPointerDown(PointerEventArgs e, int id)
+    {
+        activeId = id;
+        dragging = true;
+
+        var selected = blocks.First(x => x.Id == id);
+
+        // Prevent fixed blocks (start blocks) from being moved
+        if (selected.isFixed)
+        {
+            activeId = null;
+            dragging = false;
+            return;
+        }
+
+        var bottomLockedId = BottomLockedIdExcluding(null);
+
+        if (selected.Locked && selected.Id != bottomLockedId)
+        {
+            activeId = null;
+            dragging = false;
+            return;
+        }
+
+        activeWasLockedAtDown = selected.Locked;
+
+        if (selected.Locked)
+        {
+            var idx = blocks.FindIndex(x => x.Id == id);
+            // When unlocking a block, clear its vehicle index and parent (will be reassigned when re-attached)
+            selected = selected with { Locked = false, FillColor = PaletteGray, VehicleIndex = null, ParentId = null };
+            blocks[idx] = selected;
+        }
+
+        var stageRect = await JS.InvokeAsync<Rect>("blockDrag.rect", stageRef);
+        stageLeft = stageRect.Left;
+        stageTop = stageRect.Top;
+
+        var b = blocks.First(x => x.Id == id);
+
+        grabOffsetX = e.ClientX - (stageLeft + b.X);
+        grabOffsetY = e.ClientY - (stageTop + b.Y);
+
+        UpdateHoverPreview(b);
+    }
+
+    private void OnStagePointerMove(PointerEventArgs e)
+    {
+        if (!dragging || activeId is null) return;
+
+        var idx = blocks.FindIndex(x => x.Id == activeId.Value);
+        if (idx < 0) return;
+
+        var b = blocks[idx];
+
+        b.X = Math.Round(e.ClientX - stageLeft - grabOffsetX);
+        b.Y = Math.Round(e.ClientY - stageTop - grabOffsetY);
+
+        blocks[idx] = b;
+
+        UpdateHoverPreview(b);
+    }
+
+    private void OnStagePointerUp(PointerEventArgs e)
+    {
+        if (!dragging || activeId is null) return;
+
+        var idx = blocks.FindIndex(x => x.Id == activeId.Value);
+
+        if (idx >= 0)
+        {
+            var b = blocks[idx];
+
+            if (hoverActive)
+            {
+                // Find the vehicle index from the parent block
+                int? vehicleIndex = null;
+                if (hoverAnchorId.HasValue)
+                {
+                    var parentBlock = blocks.FirstOrDefault(x => x.Id == hoverAnchorId.Value);
+                    if (parentBlock != null)
+                    {
+                        vehicleIndex = parentBlock.VehicleIndex;
+                    }
+                }
+
+                b = b with
+                {
+                    X = hoverX,
+                    Y = hoverY,
+                    Locked = true,
+                    ParentId = hoverAnchorId,
+                    VehicleIndex = vehicleIndex
+                };
+
+                blocks[idx] = b;
+            }
+            else
+            {
+                blocks.RemoveAt(idx);
+            }
+        }
+
+        dragging = false;
+        activeId = null;
+        hoverActive = false;
+        activeWasLockedAtDown = false;
+        hoverAnchorId = null;
+    }
+
+    private void UpdateHoverPreview(Block dragged)
+    {
+        hoverActive = false;
+        hoverAnchorId = null;
+
+        var anchors = blocks.Where(b => b.Locked && b.Id != activeId).ToList();
+
+        foreach (var anchor in anchors)
+        {
+            double anchorX = anchor.X;
+            double anchorY = anchor.Y;
+
+            var targetX = anchorX;
+            var targetY = anchorY + StackStepY;
+
+            double zoneLeft = anchorX - 45;
+            double zoneRight = anchorX + 45;
+            double zoneTop = anchorY + 60;
+            double zoneBottom = anchorY + 120;
+
+            bool inside =
+                dragged.X >= zoneLeft &&
+                dragged.X <= zoneRight &&
+                dragged.Y >= zoneTop &&
+                dragged.Y <= zoneBottom;
+
+            if (inside)
+            {
+                hoverActive = true;
+                hoverAnchorId = anchor.Id;
+                hoverX = targetX;
+                hoverY = targetY;
+                break;
+            }
+        }
+    }
+
+    private int? BottomLockedIdExcluding(int? excludeId)
+    {
+        var locked = blocks
+            .Where(b => b.Locked && b.Id != excludeId)
+            .OrderByDescending(b => b.Y)
+            .FirstOrDefault();
+
+        return blocks.Any(b => b.Locked && b.Id != excludeId) ? locked.Id : (int?)null;
+    }
+
+    private async Task OnPalettePointerDown(PointerEventArgs e, Type blockToInstantiate, Enum? action)
+    {
+        nextBlockId = blocks.Count + 1;
+        dragging = true;
+        activeWasLockedAtDown = false;
+
+        var stageRect = await JS.InvokeAsync<Rect>("blockDrag.rect", stageRef);
+        stageLeft = stageRect.Left;
+        stageTop = stageRect.Top;
+
+        var spawnX = Math.Round((e.ClientX - stageLeft) - 45);
+        var spawnY = Math.Round((e.ClientY - stageTop) - 45);
+
+        Block newBlock;
+        if (blockToInstantiate == typeof(MoveBlock))
+        {
+            if (action == null)
+            {
+                throw new ArgumentNullException(nameof(action), "Action must be provided for MoveBlock instantiation.");
+            }
+            newBlock = new MoveBlock((MoveActionEnum)action) { Id = nextBlockId, X = spawnX, Y = spawnY, Locked = false, ParentId = null, VehicleIndex = null };
+        }
+        else if (blockToInstantiate == typeof(RotateBlock))
+        {
+            if (action == null)
+            {
+                throw new ArgumentNullException(nameof(action), "Action must be provided for RotateBlock instantiation.");
+            }
+            newBlock = new RotateBlock((RotateActionEnum)action) { Id = nextBlockId, X = spawnX, Y = spawnY, Locked = false, ParentId = null, VehicleIndex = null };
+        }
+        else
+        {
+            newBlock = new ConsoleBlock();
+        }
+
+        blocks.Add(newBlock);
+
+        activeId = newBlock.Id;
+
+        grabOffsetX = 45;
+        grabOffsetY = 45;
+
+        UpdateHoverPreview(newBlock);
+    }
+
+    private record Rect(double Left, double Top);
+
+    private void RunBlockStacks()
+    {
+        BuildBlockStacks();
+
+        int totalBlocks = blockStacks.Sum(s => s.Count - 1); // Exclude start blocks
+        if (totalBlocks == 0)
+        {
+            StatusMessage = "No blocks to execute. Drag blocks from the left panel to program your vehicles.";
+            return;
+        }
+
+        StatusMessage = $"Executing {totalBlocks} blocks...";
+
+        // Execute all stacks in parallel (step by step)
+        int maxStackDepth = blockStacks.Any() ? blockStacks.Max(s => s.Count) : 0;
+
+        for (int i = 0; i < maxStackDepth; i++)
+        {
+            foreach (var stack in blockStacks)
+            {
+                var block = stack.ElementAtOrDefault(i);
+                if (block != null && block.VehicleIndex.HasValue)
+                {
+                    ExecuteBlockOnVehicle(block, block.VehicleIndex.Value);
+                }
+            }
+        }
+    }
+
+    private void ExecuteBlockOnVehicle(Block block, int vehicleIndex)
+    {
+        if (vehicleIndex < 0 || vehicleIndex >= Vehicles.Count)
+            return;
+
+        // Temporarily set the selected vehicle for the move operations
+        int? previousSelection = SelectedVehicleIndex;
+        SelectedVehicleIndex = vehicleIndex;
+
+        if (block is MoveBlock moveBlock)
+        {
+            switch (moveBlock.Direction)
+            {
+                case MoveActionEnum.North:
+                    MoveSelectedUp();
+                    break;
+                case MoveActionEnum.South:
+                    MoveSelectedDown();
+                    break;
+                case MoveActionEnum.West:
+                    MoveSelectedLeft();
+                    break;
+                case MoveActionEnum.East:
+                    MoveSelectedRight();
+                    break;
+            }
+        }
+        else if (block is RotateBlock rotateBlock)
+        {
+            switch (rotateBlock.Direction)
+            {
+                case RotateActionEnum.Clockwise:
+                    RotateSelectedClockwise();
+                    break;
+                case RotateActionEnum.CounterClockwise:
+                    RotateSelectedCounterClockwise();
+                    break;
+            }
+        }
+
+        // Restore previous selection
+        SelectedVehicleIndex = previousSelection;
+    }
+
+    private void BuildBlockStacks()
+    {
+        blockStacks.Clear();
+        foreach (var startBlock in blocks.Where(b => b.GetType() == typeof(StartBlock)))
+        {
+            blockStacks.Add(new List<Block>() { startBlock });
+        }
+
+        List<int> notOrphaned = new();
+
+        while (notOrphaned.Count() < blocks.Count() - blocks.Where(b => b.GetType() == typeof(StartBlock)).Count())
+        {
+            foreach (var block in blocks.Where(b => b.GetType() != typeof(StartBlock)))
+            {
+                foreach (var stack in blockStacks)
+                {
+                    if (stack.FirstOrDefault(b => b.Id == block.ParentId) != null && !stack.Contains(block))
+                    {
+                        stack.Add(block);
+                        notOrphaned.Add(block.Id);
+                    }
+                }
+            }
+        }
+    }
+
+    #endregion
+}
+
+<script>
+    window.blockDrag = {
+        rect: (el) => {
+            const r = el.getBoundingClientRect();
+            return { left: r.left, top: r.top };
+        }
+    };
+</script>
+
+<style>
+    .controls {
+        margin-bottom: 14px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .selected-info {
+        margin-left: 8px;
+        font-weight: 600;
+    }
+
+    .status {
+        margin-bottom: 10px;
+        font-weight: 600;
+    }
+
+    .status.win {
+        font-size: 18px;
+    }
+
+    .main-layout {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .panel {
+        width: 130px;
+        border: 1px solid #ccc;
+        background: #f7f7f7;
+        padding: 4px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        user-select: none;
+        touch-action: none;
+        height: 50vh;
+        overflow-y: auto;
+    }
+
+    .drop {
+        margin-bottom: 8px;
+    }
+
+    .drop-title {
+        font-weight: 600;
+        padding: 4px;
+        cursor: pointer;
+        background: #e0e0e0;
+        border-radius: 4px;
+    }
+
+    .drop-body {
+        padding-top: 4px;
+    }
+
+    .panel-block {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 6px;
+        border-radius: 8px;
+        cursor: grab;
+        user-select: none;
+        margin-bottom: 4px;
+    }
+
+    .panel-block:active {
+        cursor: grabbing;
+    }
+
+    .stage {
+        position: relative;
+        height: 50vh;
+        width: 400px;
+        border: 1px solid #ccc;
+        user-select: none;
+        touch-action: none;
+        overflow: visible;
+        background: #fafafa;
+    }
+
+    .ghost {
+        position: absolute;
+        pointer-events: none;
+        opacity: 0.9;
+        z-index: 0;
+    }
+
+    .grid-wrapper {
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .grid-container {
+        width: fit-content;
+        position: relative;
+        gap: 0;
+        border: 1px solid #000;
+        background: white;
+        box-sizing: border-box;
+    }
+
+    .cell {
+        border: 1px solid #333;
+        background-color: #a1e9ed;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        position: relative;
+        user-select: none;
+        box-sizing: border-box;
+        cursor: pointer;
+    }
+
+    .cell.selected {
+        outline: 4px solid rgba(0,0,0,0.55);
+        outline-offset: -4px;
+    }
+
+    .occupied.veh-red { background-color: #ff6b6b; }
+    .occupied.veh-green { background-color: #5fe37a; }
+    .occupied.veh-blue { background-color: #6ea8fe; }
+    .occupied.veh-yellow { background-color: #ffe066; }
+
+    .veh-label {
+        position: absolute;
+        bottom: 3px;
+        right: 5px;
+        font-size: 12px;
+        opacity: 0.9;
+        pointer-events: none;
+    }
+
+    .cell.exit.exit-A { border-left-color: white; }
+    .cell.exit.exit-B { border-top-color: white; }
+    .cell.exit.exit-C { border-right-color: white; }
+    .cell.exit.exit-D { border-bottom-color: white; }
+
+    .grid-container.exit-B::before,
+    .grid-container.exit-D::before {
+        content: "";
+        position: absolute;
+        left: calc(var(--exit-col) * var(--cell-size));
+        width: var(--cell-size);
+        height: 4px;
+        background: white;
+        pointer-events: none;
+        z-index: 10;
+    }
+
+    .grid-container.exit-B::before { top: -2px; }
+    .grid-container.exit-D::before { bottom: -2px; }
+
+    .grid-container.exit-A::before,
+    .grid-container.exit-C::before {
+        content: "";
+        position: absolute;
+        top: calc(var(--exit-row) * var(--cell-size));
+        height: var(--cell-size);
+        width: 4px;
+        background: white;
+        pointer-events: none;
+        z-index: 10;
+    }
+
+    .grid-container.exit-A::before { left: -2px; }
+    .grid-container.exit-C::before { right: -2px; }
+</style>
+``

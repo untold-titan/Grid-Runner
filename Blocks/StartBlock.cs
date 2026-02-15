@@ -4,6 +4,7 @@
     {
         public StartBlock()
         {
+            Description = "Start";
             isFixed = true;
         }
         public override void RunBlock(string state)
