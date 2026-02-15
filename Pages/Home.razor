@@ -4,9 +4,7 @@
 @using GridRunner.Interfaces
 @inject IJSRuntime JS
 
-<PageTitle>Home</PageTitle>
-
-<h1>Hello, world!</h1>
+<PageTitle>Grid Runner</PageTitle>
 
 <div class="controls">
     <label>
@@ -29,7 +27,7 @@
 </div>
 
 <div class="controls">
-    <button @onclick="RunBlockStacks" disabled="@GameWon">Execute Blocks</button>
+    <button @onclick="RunBlockStacks" disabled="@(GameWon || IsExecuting)">Execute Blocks</button>
     <span class="selected-info">
         @if (HasSelection)
         {
@@ -37,7 +35,7 @@
         }
         else
         {
-            <span>Selected: (none) — click a vehicle on the grid</span>
+            <span>Selected: (none)</span>
         }
     </span>
 </div>
@@ -89,6 +87,20 @@
                 }
             </div>
         </details>
+
+        <details class="drop" open>
+            <summary class="drop-title">Wait</summary>
+            <div class="drop-body">
+                <div class="panel-block"
+                     @onpointerdown="(e) => OnPalettePointerDown(e, typeof(WaitBlock), null)">
+                    <svg width="90" height="90" viewBox="0 0 92 92">
+                        <path d="M 1 1 L 15 1 L 15 15 L 30 1 L 91 1 L 91 75 L 30 75 L 15 91 L 15 75 L 1 75 Z"
+                              fill="@PaletteGray" stroke="#000000" stroke-width="1" />
+                        <text x="46" y="45" text-anchor="middle" font-size="14" font-weight="bold">Wait</text>
+                    </svg>
+                </div>
+            </div>
+        </details>
     </div>
 
     <div class="stage" @ref="stageRef"
@@ -109,7 +121,7 @@
 
         @foreach (var b in blocks)
         {
-            <GridRunner.Components.CodeBlock block="b" onPointerDown="OnBlockPointerDown" />
+            <GridRunner.Components.CodeBlock block="b" onPointerDown="OnBlockPointerDown" isExecuting="@(currentlyExecutingBlockId == b.Id)" />
         }
     </div>
 
@@ -120,12 +132,12 @@
             string exitClass = ExitSide.HasValue ? $"exit-{ExitSide.Value}" : "";
 
             string gridStyle =
-                $"--cell-size:{cellSizePx}px;" +
-                $"--cols:{cols};" +
-                $"--exit-row:{exitRow};" +
-                $"--exit-col:{exitCol};" +
-                $"display:grid; grid-template-columns:repeat({cols},{cellSizePx}px);" +
-                $"grid-auto-rows:{cellSizePx}px;";
+            $"--cell-size:{cellSizePx}px;" +
+            $"--cols:{cols};" +
+            $"--exit-row:{exitRow};" +
+            $"--exit-col:{exitCol};" +
+            $"display:grid; grid-template-columns:repeat({cols},{cellSizePx}px);" +
+            $"grid-auto-rows:{cellSizePx}px;";
         }
 
         <div class="grid-container @GridCssClass @exitClass" style="@gridStyle">
@@ -180,7 +192,8 @@
             ClearLevel();
     }
 
-    private void PlayNextLevel() {
+    private void PlayNextLevel()
+    {
         PlayRandomUnplayed();
     }
 
@@ -222,7 +235,7 @@
     "C,4E;P,Y,4B,4C;C,R,2D,3D;C,G,1B,1C;B,B,2A,4A;C,B,5D,5E;T,G,5A,5D",
     };
 
-    private static readonly List<string> HardLevelLines = new() {    
+    private static readonly List<string> HardLevelLines = new() {
     "C,3F;P,Y,3C,3D;C,R,2E,3E;C,G,4D,4E;B,B,1B,3B;T,R,6A,6D;B,G,4A,6A;C,B,5E,5F",
     "C,4F;P,Y,4C,4D;C,R,3E,4E;C,G,2C,2D;B,B,1A,3A;T,G,6B,6E;B,R,2F,4F;C,B,5C,5D",
     "C,2F;P,Y,2C,2D;C,R,2E,3E;C,G,4B,4C;B,B,1D,3D;T,R,6A,6D;B,G,3A,5A;C,B,5E,5F;C,R,1A,1B",
@@ -237,17 +250,20 @@
 
     private readonly Random _rng = new();
     private List<string> _currentPack = new();
- private Queue<(string line, int index)> _playQueue = new();
+    private Queue<(string line, int index)> _playQueue = new();
 
-    private void EnsurePackLoadedForDifficulty() {
-        _currentPack = SelectedDifficulty switch {
+    private void EnsurePackLoadedForDifficulty()
+    {
+        _currentPack = SelectedDifficulty switch
+        {
             "Easy" => EasyLevelLines,
             "Medium" => MediumLevelLines,
             "Hard" => HardLevelLines,
             _ => EasyLevelLines
         };
 
-        if (_queueDifficulty != SelectedDifficulty) {
+        if (_queueDifficulty != SelectedDifficulty)
+        {
             _queueDifficulty = SelectedDifficulty;
             RefillAndShuffleQueue();
             return;
@@ -258,39 +274,41 @@
 
     private int? CurrentLevelIndex = null;
 
-private void RefillAndShuffleQueue()
-{
-    // Pair each level string with its original index in the pack
-    var indexed = _currentPack
-        .Select((line, index) => (line, index))
-        .ToList();
-
-    // Shuffle the list in-place (Fisher–Yates)
-    for (int i = indexed.Count - 1; i > 0; i--)
+    private void RefillAndShuffleQueue()
     {
-        int j = _rng.Next(i + 1);
-        (indexed[i], indexed[j]) = (indexed[j], indexed[i]);
+        // Pair each level string with its original index in the pack
+        var indexed = _currentPack
+            .Select((line, index) => (line, index))
+            .ToList();
+
+        // Shuffle the list in-place (Fisher–Yates)
+        for (int i = indexed.Count - 1; i > 0; i--)
+        {
+            int j = _rng.Next(i + 1);
+            (indexed[i], indexed[j]) = (indexed[j], indexed[i]);
+        }
+
+        // Keep both the shuffled lines and their original indices
+        _playQueue = new Queue<(string line, int index)>(indexed);
     }
 
-    // Keep both the shuffled lines and their original indices
-    _playQueue = new Queue<(string line, int index)>(indexed);
-}
+    private void PlayRandomUnplayed()
+    {
+        EnsurePackLoadedForDifficulty();
 
-private void PlayRandomUnplayed()
-{
-    EnsurePackLoadedForDifficulty();
+        if (_playQueue.Count == 0)
+            RefillAndShuffleQueue();
 
-    if (_playQueue.Count == 0)
-        RefillAndShuffleQueue();
+        var next = _playQueue.Dequeue();
+        CurrentLevelIndex = next.index;
 
-    var next = _playQueue.Dequeue();
-    CurrentLevelIndex = next.index;
+        LoadLevelLine(next.line);
+    }
 
-    LoadLevelLine(next.line);
-}
-
-    private void LoadLevelLine(string line) {
-        try {
+    private void LoadLevelLine(string line)
+    {
+        try
+        {
             Vehicles.Clear();
             ExitSide = null;
             ExitCellKey = null;
@@ -842,9 +860,6 @@ private void PlayRandomUnplayed()
             builder.OpenElement(seq++, "div");
             builder.AddAttribute(seq++, "class", classes);
             builder.AddAttribute(seq++, "id", key);
-            builder.AddAttribute(seq++, "role", "button");
-            builder.AddAttribute(seq++, "tabindex", "0");
-            builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create(this, () => SelectVehicleAtCell(key)));
             builder.AddContent(seq++, cell);
 
             if (vehicle != null && vehicle.Cells.Count > 0 && vehicle.Cells[0] == key)
@@ -908,6 +923,8 @@ private void PlayRandomUnplayed()
     private const double StackStepY = 71;
 
     private List<List<Block>> blockStacks = new();
+    private int? currentlyExecutingBlockId = null;
+    private bool IsExecuting = false;
 
     private async void OnBlockPointerDown(PointerEventArgs e, int id)
     {
@@ -1096,6 +1113,10 @@ private void PlayRandomUnplayed()
             }
             newBlock = new RotateBlock((RotateActionEnum)action) { Id = nextBlockId, X = spawnX, Y = spawnY, Locked = false, ParentId = null, VehicleIndex = null };
         }
+        else if (blockToInstantiate == typeof(WaitBlock))
+        {
+            newBlock = new WaitBlock() { Id = nextBlockId, X = spawnX, Y = spawnY, Locked = false, ParentId = null, VehicleIndex = null, FillColor = "#FFD700", Description = "Wait" };
+        }
         else
         {
             newBlock = new ConsoleBlock();
@@ -1113,33 +1134,63 @@ private void PlayRandomUnplayed()
 
     private record Rect(double Left, double Top);
 
-    private void RunBlockStacks()
+    private async Task RunBlockStacks()
     {
+        if (IsExecuting) return;
+
+        IsExecuting = true;
         BuildBlockStacks();
 
         int totalBlocks = blockStacks.Sum(s => s.Count - 1); // Exclude start blocks
         if (totalBlocks == 0)
         {
             StatusMessage = "No blocks to execute. Drag blocks from the left panel to program your vehicles.";
+            IsExecuting = false;
             return;
         }
 
         StatusMessage = $"Executing {totalBlocks} blocks...";
+        StateHasChanged();
 
-        // Execute all stacks in parallel (step by step)
-        int maxStackDepth = blockStacks.Any() ? blockStacks.Max(s => s.Count) : 0;
-
-        for (int i = 0; i < maxStackDepth; i++)
+        // Execute blocks sequentially (one at a time, depth-first through each stack)
+        foreach (var stack in blockStacks)
         {
-            foreach (var stack in blockStacks)
+            // Skip the start block (first item in each stack)
+            for (int i = 1; i < stack.Count; i++)
             {
-                var block = stack.ElementAtOrDefault(i);
-                if (block != null && block.VehicleIndex.HasValue)
+                var block = stack[i];
+
+                // Highlight the currently executing block
+                currentlyExecutingBlockId = block.Id;
+                StateHasChanged();
+
+                if (block is WaitBlock)
+                {
+                    // Wait block adds extra delay
+                    await Task.Delay(1000);
+                }
+                else if (block.VehicleIndex.HasValue)
                 {
                     ExecuteBlockOnVehicle(block, block.VehicleIndex.Value);
                 }
+
+                // Delay between blocks for visibility
+                await Task.Delay(300);
+
+                // Check if game was won
+                if (GameWon)
+                {
+                    currentlyExecutingBlockId = null;
+                    IsExecuting = false;
+                    return;
+                }
             }
         }
+
+        currentlyExecutingBlockId = null;
+        IsExecuting = false;
+        StatusMessage = "Execution complete.";
+        StateHasChanged();
     }
 
     private void ExecuteBlockOnVehicle(Block block, int vehicleIndex)
@@ -1223,6 +1274,185 @@ private void PlayRandomUnplayed()
         }
     };
 </script>
+<<<<<<< ours
+``
+||||||| ancestor
+
+<style>
+    .controls {
+        margin-bottom: 14px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .selected-info {
+        margin-left: 8px;
+        font-weight: 600;
+    }
+
+    .status {
+        margin-bottom: 10px;
+        font-weight: 600;
+    }
+
+    .status.win {
+        font-size: 18px;
+    }
+
+    .main-layout {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .panel {
+        width: 130px;
+        border: 1px solid #ccc;
+        background: #f7f7f7;
+        padding: 4px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        user-select: none;
+        touch-action: none;
+        height: 50vh;
+        overflow-y: auto;
+    }
+
+    .drop {
+        margin-bottom: 8px;
+    }
+
+    .drop-title {
+        font-weight: 600;
+        padding: 4px;
+        cursor: pointer;
+        background: #e0e0e0;
+        border-radius: 4px;
+    }
+
+    .drop-body {
+        padding-top: 4px;
+    }
+
+    .panel-block {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 6px;
+        border-radius: 8px;
+        cursor: grab;
+        user-select: none;
+        margin-bottom: 4px;
+    }
+
+    .panel-block:active {
+        cursor: grabbing;
+    }
+
+    .stage {
+        position: relative;
+        height: 50vh;
+        width: 400px;
+        border: 1px solid #ccc;
+        user-select: none;
+        touch-action: none;
+        overflow: visible;
+        background: #fafafa;
+    }
+
+    .ghost {
+        position: absolute;
+        pointer-events: none;
+        opacity: 0.9;
+        z-index: 0;
+    }
+
+    .grid-wrapper {
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .grid-container {
+        width: fit-content;
+        position: relative;
+        gap: 0;
+        border: 1px solid #000;
+        background: white;
+        box-sizing: border-box;
+    }
+
+    .cell {
+        border: 1px solid #333;
+        background-color: #a1e9ed;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        position: relative;
+        user-select: none;
+        box-sizing: border-box;
+        cursor: pointer;
+    }
+
+    .cell.selected {
+        outline: 4px solid rgba(0,0,0,0.55);
+        outline-offset: -4px;
+    }
+
+    .occupied.veh-red { background-color: #ff6b6b; }
+    .occupied.veh-green { background-color: #5fe37a; }
+    .occupied.veh-blue { background-color: #6ea8fe; }
+    .occupied.veh-yellow { background-color: #ffe066; }
+
+    .veh-label {
+        position: absolute;
+        bottom: 3px;
+        right: 5px;
+        font-size: 12px;
+        opacity: 0.9;
+        pointer-events: none;
+    }
+
+    .cell.exit.exit-A { border-left-color: white; }
+    .cell.exit.exit-B { border-top-color: white; }
+    .cell.exit.exit-C { border-right-color: white; }
+    .cell.exit.exit-D { border-bottom-color: white; }
+
+    .grid-container.exit-B::before,
+    .grid-container.exit-D::before {
+        content: "";
+        position: absolute;
+        left: calc(var(--exit-col) * var(--cell-size));
+        width: var(--cell-size);
+        height: 4px;
+        background: white;
+        pointer-events: none;
+        z-index: 10;
+    }
+
+    .grid-container.exit-B::before { top: -2px; }
+    .grid-container.exit-D::before { bottom: -2px; }
+
+    .grid-container.exit-A::before,
+    .grid-container.exit-C::before {
+        content: "";
+        position: absolute;
+        top: calc(var(--exit-row) * var(--cell-size));
+        height: var(--cell-size);
+        width: 4px;
+        background: white;
+        pointer-events: none;
+        z-index: 10;
+    }
+
+    .grid-container.exit-A::before { left: -2px; }
+    .grid-container.exit-C::before { right: -2px; }
+</style>
+``
+=======
 
 <style>
     .controls {
@@ -1398,3 +1628,4 @@ private void PlayRandomUnplayed()
     .grid-container.exit-C::before { right: -2px; }
 </style>
 // Note: All my work got overridden by my other colleagues so im making this line so i can be added to the contributors. "Even a dead horse can code 2 lines to be on the contributors list."
+>>>>>>> theirs

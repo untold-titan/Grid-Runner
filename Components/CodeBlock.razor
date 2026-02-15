@@ -2,7 +2,7 @@
 
 @if (block.isFixed)
 {
-    <div class="fixed"
+    <div class="fixed @(isExecuting ? "executing" : "")"
          style="left:@($"{block.X}px"); top:@($"{block.Y}px");">
         <p class="block-info">@block.Description - @block.Id</p>
         <svg width="90" height="90" viewBox="0 0 92 92">
@@ -19,13 +19,14 @@
                                     Z"
                   fill="@block.FillColor"
                   stroke="#000000"
-                  stroke-width="1" />
+                  stroke-width="@(isExecuting ? "4" : "1")"
+                  stroke-dasharray="@(isExecuting ? "5,5" : "none")" />
         </svg>
     </div>
 }
 else
 {
-    <div class="draggable @(block.Locked ? "locked" : "")"
+    <div class="draggable @(block.Locked ? "locked" : "") @(isExecuting ? "executing" : "")"
          style="left:@($"{block.X}px"); top:@($"{block.Y}px");"
          @onpointerdown="(e) => onPointerDown(e, block.Id)">
         <p class="block-info">@block.Description - @block.Id</p>
@@ -44,7 +45,8 @@ else
                                     Z"
                   fill="@block.FillColor"
                   stroke="#000000"
-                  stroke-width="1" />
+                  stroke-width="@(isExecuting ? "4" : "1")"
+                  stroke-dasharray="@(isExecuting ? "5,5" : "none")" />
         </svg>
     </div>
 }
@@ -54,34 +56,6 @@ else
     public required Block block { get; set; }
     [Parameter]
     public Action<PointerEventArgs, int> onPointerDown { get; set; } = null;
+    [Parameter]
+    public bool isExecuting { get; set; } = false;
 }
-
-
-<style>
-    p{
-        position:absolute;
-        top: 20px;
-        left: 10px
-    }
-    .draggable {
-        position: absolute;
-        cursor: grab;
-        touch-action: none;
-        z-index: 2;
-    }
-
-        .draggable:active {
-            cursor: grabbing;
-        }
-
-        .draggable.locked {
-            cursor: not-allowed;
-            opacity: 0.95;
-        }
-
-    .fixed {
-        position: absolute;
-        pointer-events: none;
-        z-index: 1;
-    }
-</style>
