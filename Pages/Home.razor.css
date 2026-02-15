@@ -36,7 +36,7 @@
     flex-direction: column;
     user-select: none;
     touch-action: none;
-    height: 50vh;
+    height: 70vh;
     overflow-y: auto;
 }
 
@@ -73,7 +73,7 @@
 
 .stage {
     position: relative;
-    height: 50vh;
+    height: 70vh;
     width: 900px;
     border: 1px solid #ccc;
     user-select: none;

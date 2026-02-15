@@ -241,7 +241,7 @@ namespace GridRunner.Services
             UpdateHoverPreview(newBlock);
         }
 
-        public async Task<string> RunBlockStacks()
+        public async Task<string> RunBlockStacks(Action? onStateChanged = null)
         {
             if (IsExecuting) return "Already executing.";
 
@@ -255,30 +255,39 @@ namespace GridRunner.Services
                 return "No blocks to execute. Drag blocks from the left panel to program your vehicles.";
             }
 
-            foreach (var stack in blockStacks)
+            // Find the maximum stack height (excluding the StartBlock at index 0)
+            int maxStackHeight = blockStacks.Max(s => s.Count - 1);
+
+            // Execute blocks row by row, left to right across all stacks
+            for (int row = 1; row <= maxStackHeight; row++)
             {
-                for (int i = 1; i < stack.Count; i++)
+                // Iterate through each stack (left to right)
+                for (int stackIndex = 0; stackIndex < blockStacks.Count; stackIndex++)
                 {
-                    var block = stack[i];
+                    var stack = blockStacks[stackIndex];
 
-                    CurrentlyExecutingBlockId = block.Id;
-
-                    if (block is WaitBlock)
+                    // Check if this stack has a block at this row
+                    if (row < stack.Count)
                     {
-                        await Task.Delay(1000);
-                    }
-                    else if (block.VehicleIndex.HasValue)
-                    {
-                        ExecuteBlockOnVehicle(block, block.VehicleIndex.Value);
-                    }
+                        var block = stack[row];
 
-                    await Task.Delay(300);
+                        if (block is WaitBlock)
+                        {
+                            await Task.Delay(1000);
+                        }
+                        else if (block.VehicleIndex.HasValue)
+                        {
+                            ExecuteBlockOnVehicle(block, block.VehicleIndex.Value);
+                            onStateChanged?.Invoke();
+                            await Task.Delay(250);
+                        }
 
-                    if (_movementService.GameWon)
-                    {
-                        CurrentlyExecutingBlockId = null;
-                        IsExecuting = false;
-                        return "You win!";
+                        if (_movementService.GameWon)
+                        {
+                            CurrentlyExecutingBlockId = null;
+                            IsExecuting = false;
+                            return "You win!";
+                        }
                     }
                 }
             }
