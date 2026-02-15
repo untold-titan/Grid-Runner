@@ -49,16 +49,7 @@ namespace GridRunner.Services
         };
 
         private static readonly List<string> HardLevelLines = new() {
-            "C,3F;P,Y,3C,3D;C,R,2E,3E;C,G,4D,4E;B,B,1B,3B;T,R,6A,6D;B,G,4A,6A;C,B,5E,5F",
-            "C,4F;P,Y,4C,4D;C,R,3E,4E;C,G,2C,2D;B,B,1A,3A;T,G,6B,6E;B,R,2F,4F;C,B,5C,5D",
-            "C,2F;P,Y,2C,2D;C,R,2E,3E;C,G,4B,4C;B,B,1D,3D;T,R,6A,6D;B,G,3A,5A;C,B,5E,5F;C,R,1A,1B",
-            "C,3F;P,Y,3C,3D;C,R,1E,2E;C,G,4E,5E;B,B,2B,4B;T,G,6C,6F;B,R,1A,3A;C,B,5C,5D",
-            "C,4F;P,Y,4C,4D;C,R,4E,5E;C,G,2D,3D;B,B,1B,3B;T,R,6A,6D;B,G,3A,5A;C,B,2F,3F;C,R,1E,1F",
-            "C,2F;P,Y,2C,2D;C,R,3D,4D;C,G,1C,1D;B,B,4A,6A;T,G,6B,6E;B,R,1E,3E;C,B,5C,5D",
-            "C,3F;P,Y,3C,3D;C,R,2E,3E;C,G,5B,5C;B,B,1B,3B;T,R,6A,6D;B,G,3A,5A;C,B,4D,4E;C,R,1F,2F",
-            "C,4F;P,Y,4C,4D;C,R,3C,3D;C,G,2E,3E;B,B,1A,3A;T,G,6B,6E;B,R,4A,6A;C,B,5D,5E",
-            "C,2F;P,Y,2C,2D;C,R,2E,3E;C,G,4C,4D;B,B,1D,3D;T,R,6A,6D;B,G,3A,5A;C,B,5E,5F",
-            "C,3F;P,Y,3C,3D;C,R,4D,5D;C,G,2B,2C;B,B,1B,3B;T,G,6C,6F;B,R,2E,4E;C,B,5A,5B;C,R,1E,1F",
+            "C,2F;P,Y,6A,6B;B,R,6C,4C;C,G,5A,5B;T,B,1F,4F;B,G,3D,3B;T,R,1D,1A",
         };
 
         public (string Prefix, List<string> Cells, int CellSizePx, int Cols) GetGridRenderInfo()
