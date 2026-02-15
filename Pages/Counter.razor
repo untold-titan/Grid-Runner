@@ -244,8 +244,6 @@
     private double fixedX = 40;
     private double fixedY = 40;
 
-    private List<Block> blocks = new();
-
     private string fixedColor = "#FFA500";
     private const string PaletteGray = "#DDDDDD";
     private int nextBlockId = 1;
@@ -412,7 +410,7 @@
         var spawnX = Math.Round((e.ClientX - stageLeft) - 45);
         var spawnY = Math.Round((e.ClientY - stageTop) - 45);
 
-        var newBlock = new Block(nextBlockId++, spawnX, spawnY, false, null, PaletteGray);
+        var newBlock = new ConsoleBlock() {Id = nextBlockId++, X = spawnX, Y = spawnY, Locked = false, ParentId = null, FillColor = PaletteGray};
         blocks.Add(newBlock);
 
         activeId = newBlock.Id;
