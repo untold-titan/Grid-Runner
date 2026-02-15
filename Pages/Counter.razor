@@ -1,9 +1,12 @@
 ﻿@page "/counter"
+@using GridRunner.Interfaces
+@using GridRunner.Components
 @inject IJSRuntime JS
 
 <PageTitle>Block Drag Test</PageTitle>
 
 <h1>Blocks (drag them)</h1>
+<button @onclick="RunBlockStacks">Run Block Stack</button>
 
 <div class="layout">
 
@@ -210,28 +213,6 @@
         cursor: grabbing;
     }
 
-    .draggable {
-        position: absolute;
-        cursor: grab;
-        touch-action: none;
-        z-index: 2;
-    }
-
-    .draggable:active {
-        cursor: grabbing;
-    }
-
-    .draggable.locked {
-        cursor: not-allowed;
-        opacity: 0.95;
-    }
-
-    .fixed {
-        position: absolute;
-        pointer-events: none;
-        z-index: 1;
-    }
-
     .ghost {
         position: absolute;
         pointer-events: none;
@@ -250,6 +231,14 @@
 </script>
 
 @code {
+    private List<Block> blocks = new() {
+        new StartBlock() { Id = 0, X = 40, Y = 40, Locked = true, ParentId = null, Description = "Start" },
+        new ConsoleBlock() { Id = 1, X = 180, Y = 40, Locked = false, ParentId = null, Description = "Console Write"},
+        new ConsoleBlock() { Id = 2, X = 280, Y = 40, Locked = false,  ParentId = null }
+    };
+
+
+    # region Drag and Snap Logic
     private ElementReference stageRef;
 
     private double fixedX = 40;
@@ -274,14 +263,16 @@
 
     private const double StackStepY = 71;
 
-    private async Task OnBlockPointerDown(PointerEventArgs e, int id) {
+    private async void OnBlockPointerDown(PointerEventArgs e, int id)
+    {
         activeId = id;
         dragging = true;
 
         var bottomLockedId = BottomLockedIdExcluding(null);
         var selected = blocks.First(x => x.Id == id);
 
-        if (selected.Locked && selected.Id != bottomLockedId) {
+        if (selected.Locked && selected.Id != bottomLockedId)
+        {
             activeId = null;
             dragging = false;
             return;
@@ -307,7 +298,8 @@
         UpdateHoverPreview(b);
     }
 
-    private void OnStagePointerMove(PointerEventArgs e) {
+    private void OnStagePointerMove(PointerEventArgs e)
+    {
         if (!dragging || activeId is null) return;
 
         var idx = blocks.FindIndex(x => x.Id == activeId.Value);
@@ -356,17 +348,20 @@
 
     private int? hoverAnchorId = null;
 
-    private void UpdateHoverPreview(Block dragged) {
+    private void UpdateHoverPreview(Block dragged)
+    {
 
         hoverAnchorId = BottomLockedIdExcluding(activeId);
 
         double anchorX, anchorY;
 
-        if (hoverAnchorId is null) {
+        if (hoverAnchorId is null)
+        {
             anchorX = fixedX;
             anchorY = fixedY;
         }
-        else {
+        else
+        {
             var anchor = blocks.First(b => b.Id == hoverAnchorId.Value);
             anchorX = anchor.X;
             anchorY = anchor.Y;
@@ -388,19 +383,21 @@
 
         hoverActive = inside;
 
-        if (hoverActive){
+        if (hoverActive)
+        {
             hoverX = targetX;
             hoverY = targetY;
         }
     }
 
-    private int? BottomLockedIdExcluding(int? excludeId) {
+    private int? BottomLockedIdExcluding(int? excludeId)
+    {
         var locked = blocks
             .Where(b => b.Locked && b.Id != excludeId)
             .OrderByDescending(b => b.Y)
             .FirstOrDefault();
 
-        return blocks.Any(b => b.Locked && b.Id != excludeId) ? locked.Id : (int?)null;
+        return blocks.Any(b => b.Locked && b.Id != excludeId) ? locked?.Id : (int?)null;
     }
 
     private async Task OnPalettePointerDown(PointerEventArgs e, int paletteIndex) {
@@ -427,5 +424,59 @@
     }
 
     private record Rect(double Left, double Top);
-    private record struct Block(int Id, double X, double Y, bool Locked, int? ParentId, string FillColor);
+
+    #endregion
+
+    # region Execution Logic
+
+    private List<List<Block>> blockStacks = new();
+
+    private void RunBlockStacks()
+    {
+        BuildBlockStacks();
+        // Execute stacks!
+        Console.WriteLine("Executing Stacks:");
+        for (int i = 0; i < blockStacks.OrderBy(list => list.Count).ToList()[0].Count(); i++)
+        {
+            foreach (var stack in blockStacks)
+            {
+                var block = stack.ElementAtOrDefault(i);
+                if (block != null)
+                {
+                    block.RunBlock("abcd");
+                }
+            }
+        }
+    }
+
+    private void BuildBlockStacks()
+    {
+        // Get the start blocks
+        blockStacks.Clear();
+        foreach (var startBlock in blocks.Where(b => b.GetType() == typeof(StartBlock)))
+        {
+            blockStacks.Add(new List<Block>() { startBlock });
+        }
+
+        List<int> notOrphaned = new();
+
+        Console.WriteLine("Target: " + (blocks.Count() - blocks.Where(b => b.GetType() == typeof(StartBlock)).Count()));
+        while (notOrphaned.Count() < blocks.Count() - blocks.Where(b => b.GetType() == typeof(StartBlock)).Count())
+        {
+            Console.WriteLine("N/A Orphaned = " + notOrphaned.Count);
+            foreach (var block in blocks.Where(b => b.GetType() != typeof(StartBlock)))
+            {
+                foreach (var stack in blockStacks)
+                {
+                    if (stack.FirstOrDefault(b => b.Id == block.ParentId) != null && !stack.Contains(block))
+                    {
+                        stack.Add(block);
+                        notOrphaned.Add(block.Id);
+                    }
+                }
+            }
+        }
+    }
+
+    # endregion
 }
