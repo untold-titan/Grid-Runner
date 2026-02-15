@@ -1,4 +1,6 @@
 ﻿@page "/counter"
+@using GridRunner.Blocks
+@using GridRunner.Enums
 @using GridRunner.Interfaces
 @inject IJSRuntime JS
 
@@ -10,9 +12,8 @@
 <div class="layout">
 
     <div class="panel">
-
         <div class="panel-block"
-             @onpointerdown="(e) => OnPalettePointerDown(e, 6, typeof(ConsoleBlock))">
+             @onpointerdown="(e) => OnPalettePointerDown(e, typeof(ConsoleBlock), null)">
             <svg width="90" height="90" viewBox="0 0 92 92">
                 <path d="
                     M 1 1
@@ -36,10 +37,10 @@
             <summary class="drop-title">Move</summary>
 
             <div class="drop-body">
-                @for (int i = 0; i < 4; i++)
+                @foreach (var value in Enum.GetValues(typeof(MoveActionEnum)))
                 {
                     <div class="panel-block"
-                         @onpointerdown="(e) => OnPalettePointerDown(e, i, typeof(ConsoleBlock))">
+                         @onpointerdown="(e) => OnPalettePointerDown(e, typeof(MoveBlock), (MoveActionEnum)value)">
                         <svg width="90" height="90" viewBox="0 0 92 92">
                             <path d="
                                                     M 1 1
@@ -66,10 +67,10 @@
             <summary class="drop-title">Rotate</summary>
 
             <div class="drop-body">
-                @for (int i = 0; i < 2; i++)
+                @foreach (var value in Enum.GetValues(typeof(RotateActionEnum)))
                 {
                     <div class="panel-block"
-                         @onpointerdown="(e) => OnPalettePointerDown(e, i + 4, typeof(ConsoleBlock))">
+                         @onpointerdown="(e) => OnPalettePointerDown(e, typeof(ConsoleBlock), (RotateActionEnum)value)">
                         <svg width="90" height="90" viewBox="0 0 92 92">
                             <path d="
                                                     M 1 1
@@ -351,7 +352,7 @@
                     Y = hoverY,
                     Locked = true,
                     ParentId = hoverAnchorId,
-                    FillColor = fixedColor
+                    // FillColor = fixedColor
                 };
 
                 blocks[idx] = b;
@@ -426,7 +427,14 @@
         return blocks.Any(b => b.Locked && b.Id != excludeId) ? locked.Id : (int?)null;
     }
 
-    private async Task OnPalettePointerDown(PointerEventArgs e, int paletteIndex, Type blockToInstantiate)
+    /// <summary>
+    /// Handles the creation of new blocks for the stage
+    /// </summary>
+    /// <param name="e">Pointer Event</param>
+    /// <param name="blockToInstantiate">The type of block to instantiate</param>
+    /// <param name="action">The action the block will perform (if applicable)</param>
+    /// <returns></returns>
+    private async Task OnPalettePointerDown(PointerEventArgs e, Type blockToInstantiate, Enum? action)
     {
         nextBlockId = blocks.Count + 1;
         dragging = true;
@@ -442,7 +450,15 @@
         Block newBlock;
         if (blockToInstantiate == typeof(ConsoleBlock))
         {
-            newBlock = new ConsoleBlock() { Id = nextBlockId, X = spawnX, Y = spawnY, Locked = false, ParentId = null, FillColor = PaletteGray };
+            newBlock = new ConsoleBlock() { Id = nextBlockId, X = spawnX, Y = spawnY, Locked = false, ParentId = null };
+        }
+        else if (blockToInstantiate == typeof(MoveBlock))
+        {
+            if (action == null)
+            {
+                throw new ArgumentNullException(nameof(action), "Action must be provided for MoveBlock instantiation.");
+            }
+            newBlock = new MoveBlock((MoveActionEnum)action) { Id = nextBlockId, X = spawnX, Y = spawnY, Locked = false, ParentId = null};
         }
         else
         {
@@ -470,7 +486,7 @@
         BuildBlockStacks();
         // Execute stacks!
         Console.WriteLine("Executing Stacks:");
-        for (int i = 0; i < blockStacks.OrderBy(list => list.Count).ToList()[0].Count(); i++)
+        for (int i = 0; i < blockStacks.OrderByDescending(list => list.Count).ToList()[0].Count(); i++)
         {
             foreach (var stack in blockStacks)
             {

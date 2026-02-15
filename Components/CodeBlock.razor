@@ -17,7 +17,7 @@
                                     L 15 75
                                     L 1 75
                                     Z"
-                  fill="#FFA500"
+                  fill="@block.FillColor"
                   stroke="#000000"
                   stroke-width="1" />
         </svg>
@@ -42,7 +42,7 @@ else
                                     L 15 75
                                     L 1 75
                                     Z"
-                  fill="#FFA500"
+                  fill="@block.FillColor"
                   stroke="#000000"
                   stroke-width="1" />
         </svg>
@@ -53,7 +53,7 @@ else
     [Parameter]
     public required Block block { get; set; }
     [Parameter]
-    public required Action<PointerEventArgs, int> onPointerDown { get; set; }
+    public Action<PointerEventArgs, int> onPointerDown { get; set; } = null;
 }
 
 
