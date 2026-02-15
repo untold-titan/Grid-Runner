@@ -45,7 +45,7 @@
         }
         else
         {
-            <span>Selected: (none) — click a vehicle on the grid</span>
+            <span>Selected: (none) — click a vehicle</span>
         }
     </span>
 </div>
@@ -69,8 +69,11 @@
         $"grid-auto-rows:{cellSizePx}px;";
 }
 
-<div class="grid-container @GridCssClass @exitClass" style="@gridStyle">
-    @RenderGrid()
+<div class="board">
+    <div class="grid-container @GridCssClass @exitClass" style="@gridStyle">
+        @RenderGrid()
+        @RenderVehicleSprites()
+    </div>
 </div>
 
 @code {
@@ -84,6 +87,7 @@
 
     private int? SelectedVehicleIndex;
     private bool HasSelection => SelectedVehicleIndex.HasValue && SelectedVehicleIndex.Value >= 0 && SelectedVehicleIndex.Value < Vehicles.Count;
+
     private string SelectedVehicleDisplay => HasSelection
         ? $"{Vehicles[SelectedVehicleIndex!.Value].Type} ({Vehicles[SelectedVehicleIndex!.Value].Color})"
         : "(none)";
@@ -121,7 +125,7 @@
 
     private void LoadSampleLine()
     {
-        string sample = "A,1A;P,R,3C,4C;C,B,2A,2B;C,G,3A,4A;T,Y,1D,4D";
+        string sample = "A,1A;P,R,3C,4C;C,B,2A,2B;C,G,3A,4A;T,B,1D,3D";
         LoadLevelLine(sample);
     }
 
@@ -213,7 +217,7 @@
 
                 if (tokens.Length != 4)
                 {
-                    StatusMessage = $"Vehicle section must be exactly 4 tokens: Type,Color,Start,End. Bad section: '{parts[p]}'";
+                    StatusMessage = $"Vehicle must be Type,Color,Start,End. Bad: '{parts[p]}'";
                     return;
                 }
 
@@ -224,21 +228,21 @@
 
                 if (!validCells.Contains(start) || !validCells.Contains(end))
                 {
-                    StatusMessage = $"Vehicle has invalid start/end cell: {start} -> {end}.";
+                    StatusMessage = $"Invalid start/end: {start} -> {end}.";
                     return;
                 }
 
                 var occupiedLabels = BuildOccupiedCellsFromStartEnd(start, end);
                 if (occupiedLabels == null || occupiedLabels.Count == 0)
                 {
-                    StatusMessage = $"Vehicle start/end must be in same row or same column: {start} -> {end}.";
+                    StatusMessage = $"Start/end must be same row or column: {start} -> {end}.";
                     return;
                 }
 
                 int expectedLen = ExpectedLength(type);
                 if (expectedLen > 0 && occupiedLabels.Count != expectedLen)
                 {
-                    StatusMessage = $"Vehicle {type} expected length {expectedLen} but got {occupiedLabels.Count} from {start}->{end}.";
+                    StatusMessage = $"Vehicle {type} expected len {expectedLen} but got {occupiedLabels.Count}.";
                     return;
                 }
 
@@ -247,7 +251,7 @@
                 var allOccupied = Vehicles.SelectMany(v => v.Cells).ToHashSet();
                 if (occupiedKeys.Any(allOccupied.Contains))
                 {
-                    StatusMessage = $"Collision: vehicle {type} overlaps an existing vehicle.";
+                    StatusMessage = $"Collision: vehicle {type} overlaps another.";
                     return;
                 }
 
@@ -255,7 +259,6 @@
                 {
                     Type = type,
                     Color = color,
-                    CssClass = CssClassForColor(color),
                     Cells = occupiedKeys
                 });
             }
@@ -268,6 +271,15 @@
         }
     }
 
+    private void SelectVehicleByIndex(int idx)
+    {
+        if (GameWon) return;
+        if (idx < 0 || idx >= Vehicles.Count) return;
+
+        SelectedVehicleIndex = idx;
+        StatusMessage = $"Selected: {Vehicles[idx].Type} ({Vehicles[idx].Color})";
+    }
+
     private void SelectVehicleAtCell(string cellKey)
     {
         if (GameWon) return;
@@ -276,8 +288,7 @@
         {
             if (Vehicles[i].Cells.Contains(cellKey))
             {
-                SelectedVehicleIndex = i;
-                StatusMessage = $"Selected: {Vehicles[i].Type} ({Vehicles[i].Color})";
+                SelectVehicleByIndex(i);
                 return;
             }
         }
@@ -299,17 +310,17 @@
         var v = Vehicles[SelectedVehicleIndex!.Value];
 
         var labels = v.Cells.Select(k => StripPrefix(k, prefix)).ToList();
-        var orientation = GetOrientation(labels);
+        var orientation = GetOrientationFromStartEnd(labels);
 
         if (orientation == Orientation.Horizontal && dy != 0)
         {
-            StatusMessage = "Blocked: horizontal vehicles can only move left/right.";
+            StatusMessage = "Blocked: horizontal vehicles only move left/right.";
             return;
         }
 
         if (orientation == Orientation.Vertical && dx != 0)
         {
-            StatusMessage = "Blocked: vertical vehicles can only move up/down.";
+            StatusMessage = "Blocked: vertical vehicles only move up/down.";
             return;
         }
 
@@ -368,7 +379,7 @@
 
         if (!movingOut) return false;
 
-        var orientation = GetOrientation(currentLabels);
+        var orientation = GetOrientationFromStartEnd(currentLabels);
         bool orientedForExit =
             ((ExitSide.Value == 'A' || ExitSide.Value == 'C') && orientation == Orientation.Horizontal) ||
             ((ExitSide.Value == 'B' || ExitSide.Value == 'D') && orientation == Orientation.Vertical);
@@ -422,10 +433,9 @@
         var v = Vehicles[SelectedVehicleIndex!.Value];
 
         var oldLabels = v.Cells.Select(k => StripPrefix(k, prefix)).ToList();
-
-        if (GetOrientation(oldLabels) == Orientation.Unknown)
+        if (oldLabels.Count < 2)
         {
-            StatusMessage = "Rotate blocked: not a straight vehicle.";
+            StatusMessage = "Rotate blocked: length must be >= 2.";
             return;
         }
 
@@ -537,23 +547,17 @@
         return !newKeys.Any(occupied.Contains);
     }
 
-    private static string StripPrefix(string key, string prefix)
-    {
-        if (key.StartsWith(prefix, StringComparison.Ordinal))
-            return key.Substring(prefix.Length);
-        return key;
-    }
-
     private enum Orientation { Unknown, Horizontal, Vertical }
 
-    private static Orientation GetOrientation(List<string> labels)
+    private static Orientation GetOrientationFromStartEnd(List<string> labels)
     {
-        var coords = labels.Select(ParseCell).ToList();
-        bool sameRow = coords.All(x => x.row == coords[0].row);
-        bool sameCol = coords.All(x => x.col == coords[0].col);
+        if (labels.Count < 2) return Orientation.Unknown;
 
-        if (sameRow && !sameCol) return Orientation.Horizontal;
-        if (sameCol && !sameRow) return Orientation.Vertical;
+        var (r0, c0) = ParseCell(labels[0]);
+        var (r1, c1) = ParseCell(labels[^1]);
+
+        if (r0 == r1 && c0 != c1) return Orientation.Horizontal;
+        if (c0 == c1 && r0 != r1) return Orientation.Vertical;
         return Orientation.Unknown;
     }
 
@@ -614,14 +618,10 @@
     private static (int row, int col) ParseCell(string cell)
     {
         cell = cell.Trim().ToUpper();
-        if (cell.Length < 2) throw new Exception($"Bad cell '{cell}'.");
-
         string rowPart = cell[..^1];
         char colChar = cell[^1];
 
         if (!int.TryParse(rowPart, out int row)) throw new Exception($"Bad row in cell '{cell}'.");
-        if (colChar < 'A' || colChar > 'Z') throw new Exception($"Bad column in cell '{cell}'.");
-
         int col = colChar - 'A';
         return (row, col);
     }
@@ -630,6 +630,13 @@
     {
         char col = (char)('A' + colIndex);
         return $"{row}{col}";
+    }
+
+    private static string StripPrefix(string key, string prefix)
+    {
+        if (key.StartsWith(prefix, StringComparison.Ordinal))
+            return key.Substring(prefix.Length);
+        return key;
     }
 
     private (string Prefix, List<string> Cells, int CellSizePx, int Cols) GetGridRenderInfo()
@@ -654,58 +661,138 @@
     }
 
     private RenderFragment RenderGrid() => builder =>
+{
+    var (prefix, cells, _, _) = GetGridRenderInfo();
+    int seq = 0;
+
+    foreach (var cell in cells)
     {
-        var (prefix, cells, _, _) = GetGridRenderInfo();
-        int seq = 0;
+        var key = prefix + cell;
+        bool isExit = (ExitCellKey == key);
 
-        var cellToVehicleIndex = new Dictionary<string, int>();
-        for (int i = 0; i < Vehicles.Count; i++)
-            foreach (var key in Vehicles[i].Cells)
-                cellToVehicleIndex[key] = i;
+        var (row, col) = ParseCell(cell);          // row is 1-based, col is 0-based
+        int gridRow = row;                         // CSS grid row line
+        int gridCol = col + 1;                     // CSS grid col line is 1-based
 
-        foreach (var cell in cells)
+        string classes = "cell";
+        if (isExit && ExitSide.HasValue) classes += " exit exit-" + ExitSide.Value;
+
+        string style = $"grid-row:{gridRow}; grid-column:{gridCol};";
+
+        builder.OpenElement(seq++, "div");
+        builder.AddAttribute(seq++, "class", classes);
+        builder.AddAttribute(seq++, "style", style);
+        builder.AddAttribute(seq++, "id", key);
+        builder.AddAttribute(seq++, "role", "button");
+        builder.AddAttribute(seq++, "tabindex", "0");
+        builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create(this, () => SelectVehicleAtCell(key)));
+        builder.AddContent(seq++, cell);
+        builder.CloseElement();
+    }
+};
+
+private RenderFragment RenderVehicleSprites() => builder =>
+{
+    var (prefix, _, cellSize, _) = GetGridRenderInfo();
+    int seq = 0;
+
+    for (int i = 0; i < Vehicles.Count; i++)
+    {
+        var v = Vehicles[i];
+        if (v.Cells.Count == 0) continue;
+
+        var labels = v.Cells.Select(k => StripPrefix(k, prefix)).ToList();
+        int len = labels.Count;
+
+        var coords = labels.Select(ParseCell).ToList();
+        int minRow = coords.Min(rc => rc.row);
+        int maxRow = coords.Max(rc => rc.row);
+        int minCol = coords.Min(rc => rc.col);
+        int maxCol = coords.Max(rc => rc.col);
+
+        int angle = GetAngleFromPivotToNext(labels);
+
+        int gridColStart = minCol + 1;
+        int gridColEnd = maxCol + 2;
+
+        int gridRowStart = minRow;
+        int gridRowEnd = maxRow + 1;
+
+        string containerStyle =
+            $"grid-column:{gridColStart} / {gridColEnd};" +
+            $"grid-row:{gridRowStart} / {gridRowEnd};";
+
+        int innerW = cellSize;
+        int innerH = len * cellSize;
+
+        string imgStyle =
+            $"position:absolute; left:50%; top:50%;" +
+            $"width:{innerW}px; height:{innerH}px;" +
+            $"transform: translate(-50%,-50%) rotate({angle}deg);" +
+            $"transform-origin: center center;";
+
+        string classes = "veh-sprite";
+        if (HasSelection && SelectedVehicleIndex!.Value == i) classes += " selected";
+
+        builder.OpenElement(seq++, "div");
+        builder.AddAttribute(seq++, "class", classes);
+        builder.AddAttribute(seq++, "style", containerStyle);
+        builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create(this, () => SelectVehicleByIndex(i)));
+
+        builder.OpenElement(seq++, "img");
+builder.AddAttribute(seq++, "class", "veh-img");
+builder.AddAttribute(seq++, "src", GetSpritePath(v));
+builder.AddAttribute(seq++, "style", imgStyle);
+builder.AddAttribute(seq++, "draggable", "false");
+builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create(this, () => SelectVehicleByIndex(i)));
+        builder.CloseElement();
+
+        builder.CloseElement();
+    }
+};
+
+private static int GetAngleFromPivotToNext(List<string> labels)
+{
+    if (labels.Count < 2) return 0;
+
+    var (r0, c0) = ParseCell(labels[0]);
+    var (r1, c1) = ParseCell(labels[1]);
+
+    int dr = r1 - r0;
+    int dc = c1 - c0;
+
+    if (dr == 1 && dc == 0) return 0;
+    if (dr == 0 && dc == 1) return 90;
+    if (dr == -1 && dc == 0) return 180;
+    if (dr == 0 && dc == -1) return 270;
+
+    return 0;
+}
+
+    private static string GetSpritePath(Vehicle v)
+    {
+        if (v.Type == 'P')
+            return "/img/yellow-car.png";
+
+        string color = v.Color switch
         {
-            var key = prefix + cell;
+            'R' => "red",
+            'G' => "green",
+            'B' => "blue",
+            'Y' => "yellow",
+            _ => "red"
+        };
 
-            bool hasVehicle = cellToVehicleIndex.TryGetValue(key, out var vIndex);
-            Vehicle? vehicle = hasVehicle ? Vehicles[vIndex] : null;
+        string kind = v.Type switch
+        {
+            'C' => "car",
+            'B' => "bus",
+            'T' => "truck",
+            _ => "car"
+        };
 
-            bool isExit = (ExitCellKey == key);
-            bool isSelected = HasSelection && hasVehicle && vIndex == SelectedVehicleIndex!.Value;
-
-            string classes = "cell";
-            if (vehicle != null) classes += " occupied " + vehicle.CssClass;
-            if (isExit && ExitSide.HasValue) classes += " exit exit-" + ExitSide.Value;
-            if (isSelected) classes += " selected";
-
-            builder.OpenElement(seq++, "div");
-            builder.AddAttribute(seq++, "class", classes);
-            builder.AddAttribute(seq++, "id", key);
-            builder.AddAttribute(seq++, "role", "button");
-            builder.AddAttribute(seq++, "tabindex", "0");
-            builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create(this, () => SelectVehicleAtCell(key)));
-            builder.AddContent(seq++, cell);
-
-            if (vehicle != null && vehicle.Cells.Count > 0 && vehicle.Cells[0] == key)
-            {
-                builder.OpenElement(seq++, "div");
-                builder.AddAttribute(seq++, "class", "veh-label");
-                builder.AddContent(seq++, vehicle.Type.ToString());
-                builder.CloseElement();
-            }
-
-            builder.CloseElement();
-        }
-    };
-
-    private static string CssClassForColor(char color) => color switch
-    {
-        'R' => "veh-red",
-        'G' => "veh-green",
-        'B' => "veh-blue",
-        'Y' => "veh-yellow",
-        _ => "veh-red"
-    };
+        return $"/img/{color}-{kind}.png";
+    }
 
     private static List<string> BuildCells(int rows, int cols)
     {
@@ -720,7 +807,6 @@
     {
         public char Type { get; set; }
         public char Color { get; set; }
-        public string CssClass { get; set; } = "";
         public List<string> Cells { get; set; } = new();
     }
 }
@@ -748,6 +834,11 @@
         font-size: 18px;
     }
 
+    .board {
+        width: fit-content;
+        height: fit-content;
+    }
+
     .grid-container {
         width: fit-content;
         position: relative;
@@ -755,6 +846,9 @@
         border: 1px solid #000;
         background: white;
         box-sizing: border-box;
+        position: relative;
+        isolation: isolate;
+        grid-auto-flow: row;
     }
 
     .cell {
@@ -768,26 +862,31 @@
         user-select: none;
         box-sizing: border-box;
         cursor: pointer;
+        z-index: 1;
     }
+.veh-sprite {
+    position: relative;
+    z-index: 5;
+    pointer-events: auto;
+    cursor: pointer;
+    user-select: none;
+    overflow: visible;
+    background: transparent;
+}
 
-    .cell.selected {
+    .veh-sprite.selected {
         outline: 4px solid rgba(0,0,0,0.55);
         outline-offset: -4px;
     }
 
-    .occupied.veh-red { background-color: #ff6b6b; }
-    .occupied.veh-green { background-color: #5fe37a; }
-    .occupied.veh-blue { background-color: #6ea8fe; }
-    .occupied.veh-yellow { background-color: #ffe066; }
-
-    .veh-label {
-        position: absolute;
-        bottom: 3px;
-        right: 5px;
-        font-size: 12px;
-        opacity: 0.9;
-        pointer-events: none;
-    }
+.veh-img {
+    object-fit: contain;
+    image-rendering: pixelated;
+    user-select: none;
+    pointer-events: auto;
+    display: block;
+    z-index: 2;
+}
 
     .cell.exit.exit-A { border-left-color: white; }
     .cell.exit.exit-B { border-top-color: white; }
@@ -824,4 +923,3 @@
     .grid-container.exit-A::before { left: -2px; }
     .grid-container.exit-C::before { right: -2px; }
 </style>
-``
