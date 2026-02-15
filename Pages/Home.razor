@@ -3,10 +3,39 @@
 @using GridRunner.Enums
 @using GridRunner.Interfaces
 @inject IJSRuntime JS
+@using Microsoft.AspNetCore.SignalR.Client
+@using System.Text.Json
 
 <PageTitle>Home</PageTitle>
 
 <h1>Hello, world!</h1>
+
+<div class="controls" style="gap:10px; display:flex; flex-wrap:wrap; align-items:center;">
+    <input style="width:260px;" @bind="HubUrl" placeholder="Hub URL (http://localhost5018/gamehub)" />
+    <button @onclick="CreateRoom" disabled="@IsConnected">Create Room</button>
+
+    <input style="width:120px;" @bind="JoinCode" placeholder="Code" />
+    <button @onclick="JoinRoom" disabled="@IsConnected">Join Room</button>
+
+    <span>Room: <b>@RoomCode</b></span>
+    <span>Role: <b>@Role</b></span>
+</div>
+
+@if (Role == "Controller")
+{
+    <div class="controls">
+        <button @onclick="@(() => SendBlock("Up"))">Up</button>
+        <button @onclick="@(() => SendBlock("Down"))">Down</button>
+        <button @onclick="@(() => SendBlock("Left"))">Left</button>
+        <button @onclick="@(() => SendBlock("Right"))">Right</button>
+        <button @onclick="@(() => SendBlock("CW"))">CW</button>
+        <button @onclick="@(() => SendBlock("CCW"))">CCW</button>
+    </div>
+
+    <div style="margin-bottom:14px;">
+        Board says: <b>@LastBoardStatus</b>
+    </div>
+}
 
 <div class="controls">
     <label>
@@ -55,6 +84,7 @@
 }
 
 <div class="main-layout">
+    @if (Role == "Controller") {
     <div class="panel">
         <details class="drop" open>
             <summary class="drop-title">Move</summary>
@@ -112,7 +142,9 @@
             <GridRunner.Components.CodeBlock block="b" onPointerDown="OnBlockPointerDown" />
         }
     </div>
+    }
 
+    @if (Role != "Controller") {
     <div class="grid-wrapper">
         @{
             var (prefix, _, cellSizePx, cols) = GetGridRenderInfo();
@@ -132,9 +164,18 @@
             @RenderGrid()
         </div>
     </div>
+    }
 </div>
 
 @code {
+
+    private HubConnection? hub;
+    private string HubUrl = "http://localhost:5018/gamehub";
+    private string RoomCode = "";
+    private string JoinCode = "";
+    private string Role = "";
+    private bool IsConnected => hub?.State == HubConnectionState.Connected;
+
     private string SelectedDifficulty = "Easy";
     private string StatusMessage = "";
 
@@ -685,6 +726,40 @@ private void PlayRandomUnplayed()
 
         return true;
     }
+    
+    private async void ApplyIncomingBlock(string block)
+{
+    if (!HasSelection || GameWon)
+    {
+        await SendStatusToController("No vehicle selected.");
+        return;
+    }
+
+    var before = Snapshot();
+
+    if (block == "Up") MoveSelectedUp();
+    else if (block == "Down") MoveSelectedDown();
+    else if (block == "Left") MoveSelectedLeft();
+    else if (block == "Right") MoveSelectedRight();
+    else if (block == "CW") RotateSelectedClockwise();
+    else if (block == "CCW") RotateSelectedCounterClockwise();
+
+    bool changed = before != Snapshot();
+
+    await InvokeAsync(StateHasChanged);
+    await SendStatusToController(changed ? $"Applied: {block}" : $"Invalid: {block}");
+}
+
+private string Snapshot()
+{
+    return string.Join("|", Vehicles.Select(v => string.Join(",", v.Cells)));
+}
+
+private async Task SendStatusToController(string msg)
+{
+    if (!IsConnected || Role != "Board" || string.IsNullOrWhiteSpace(RoomCode)) return;
+    await hub!.SendAsync("SendStatus", RoomCode, msg);
+}
 
     private bool IsMoveCollisionFree(int movingIndex, List<string> newKeys)
     {
@@ -1211,6 +1286,65 @@ private void PlayRandomUnplayed()
             }
         }
     }
+
+    private string LastBoardStatus = "";
+
+    private async Task EnsureHub()
+{
+    if (hub != null) return;
+
+    hub = new HubConnectionBuilder()
+        .WithUrl(HubUrl)
+        .WithAutomaticReconnect()
+        .Build();
+
+    hub.On<string>("BlockFromController", block =>
+{
+    if (Role == "Board")
+    {
+        ApplyIncomingBlock(block);
+    }
+});
+
+hub.On<string>("StatusFromBoard", msg =>
+{
+    if (Role == "Controller")
+    {
+        LastBoardStatus = msg;
+        InvokeAsync(StateHasChanged);
+    }
+});
+
+    await hub.StartAsync();
+}
+
+private async Task CreateRoom()
+{
+    await EnsureHub();
+    Role = "Board";
+    RoomCode = await hub!.InvokeAsync<string>("CreateRoom");
+    StatusMessage = $"Multiplayer: Room {RoomCode} ({Role})";
+}
+
+private async Task SendBlock(string block)
+{
+    if (!IsConnected || Role != "Controller" || string.IsNullOrWhiteSpace(RoomCode)) return;
+    await hub!.SendAsync("SendBlock", RoomCode, block);
+}
+
+private async Task JoinRoom()
+{
+    await EnsureHub();
+    var role = await hub!.InvokeAsync<string>("JoinRoom", JoinCode);
+    if (string.IsNullOrWhiteSpace(role))
+    {
+        StatusMessage = "Multiplayer: join failed (room full or not found).";
+        return;
+    }
+    Role = role;
+    RoomCode = JoinCode.Trim().ToUpperInvariant();
+    StatusMessage = $"Multiplayer: Joined {RoomCode} ({Role})";
+}
 
     #endregion
 }

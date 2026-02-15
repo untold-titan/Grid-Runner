@@ -10,10 +10,15 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.16" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.16" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.3" />
   </ItemGroup>
 
   <ItemGroup>
     <ServiceWorker Include="wwwroot\service-worker.js" PublishedContent="wwwroot\service-worker.published.js" />
   </ItemGroup>
-
+<ItemGroup>
+  <Compile Remove="GridRunner.Server\**\*.cs" />
+  <Content Remove="GridRunner.Server\**\*" />
+  <None Remove="GridRunner.Server\**\*" />
+</ItemGroup>
 </Project>
