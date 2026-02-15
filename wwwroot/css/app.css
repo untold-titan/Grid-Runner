@@ -101,3 +101,116 @@ a, .btn-link {
 code {
     color: #c02d76;
 }
+
+/* Grid Runner - Grid Styles (must be global due to RenderFragment) */
+.grid-wrapper {
+    display: flex;
+    align-items: flex-start;
+}
+
+.grid-container {
+    width: fit-content;
+    position: relative;
+    gap: 0;
+    border: 1px solid #000;
+    background: white;
+    box-sizing: border-box;
+}
+
+.cell {
+    border: 1px solid #333;
+    background-color: #a1e9ed;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    position: relative;
+    user-select: none;
+    box-sizing: border-box;
+}
+
+    .cell.selected {
+        outline: 4px solid rgba(0,0,0,0.55);
+        outline-offset: -4px;
+    }
+
+.occupied.veh-red {
+    background-color: #ff6b6b;
+}
+
+.occupied.veh-green {
+    background-color: #5fe37a;
+}
+
+.occupied.veh-blue {
+    background-color: #6ea8fe;
+}
+
+.occupied.veh-yellow {
+    background-color: #ffe066;
+}
+
+.veh-label {
+    position: absolute;
+    bottom: 3px;
+    right: 5px;
+    font-size: 12px;
+    opacity: 0.9;
+    pointer-events: none;
+}
+
+.cell.exit.exit-A {
+    border-left-color: white;
+}
+
+.cell.exit.exit-B {
+    border-top-color: white;
+}
+
+.cell.exit.exit-C {
+    border-right-color: white;
+}
+
+.cell.exit.exit-D {
+    border-bottom-color: white;
+}
+
+.grid-container.exit-B::before,
+.grid-container.exit-D::before {
+    content: "";
+    position: absolute;
+    left: calc(var(--exit-col) * var(--cell-size));
+    width: var(--cell-size);
+    height: 4px;
+    background: white;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.grid-container.exit-B::before {
+    top: -2px;
+}
+
+.grid-container.exit-D::before {
+    bottom: -2px;
+}
+
+.grid-container.exit-A::before,
+.grid-container.exit-C::before {
+    content: "";
+    position: absolute;
+    top: calc(var(--exit-row) * var(--cell-size));
+    height: var(--cell-size);
+    width: 4px;
+    background: white;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.grid-container.exit-A::before {
+    left: -2px;
+}
+
+.grid-container.exit-C::before {
+    right: -2px;
+}

@@ -1,3 +1,4 @@
+using GridRunner.Services;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 
@@ -12,6 +13,11 @@ namespace GridRunner
             builder.RootComponents.Add<HeadOutlet>("head::after");
 
             builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
+
+            // Register game services
+            builder.Services.AddScoped<LevelLoaderService>();
+            builder.Services.AddScoped<VehicleMovementService>();
+            builder.Services.AddScoped<BlockExecutionService>();
 
             await builder.Build().RunAsync();
         }
