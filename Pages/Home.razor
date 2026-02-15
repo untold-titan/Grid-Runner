@@ -187,6 +187,8 @@
     private void ClearLevel()
     {
         Vehicles.Clear();
+        blocks.Clear();
+        nextBlockId = 0;
         ExitSide = null;
         ExitCellKey = null;
         SelectedVehicleIndex = null;
@@ -386,11 +388,44 @@ private void PlayRandomUnplayed()
                 });
             }
 
+            GenerateStartBlocksForVehicles();
             StatusMessage = $"Loaded level: vehicles={Vehicles.Count}.";
         }
         catch (Exception ex)
         {
             StatusMessage = $"Parse error: {ex.Message}";
+        }
+    }
+
+    private void GenerateStartBlocksForVehicles()
+    {
+        // Clear all existing blocks
+        blocks.Clear();
+        nextBlockId = 0;
+
+        // Generate a start block for each vehicle
+        for (int i = 0; i < Vehicles.Count; i++)
+        {
+            var vehicle = Vehicles[i];
+            var startBlock = new StartBlock()
+            {
+                Id = nextBlockId++,
+                X = 40 + (i * 120), // Space them horizontally
+                Y = 40,
+                Locked = true,
+                ParentId = null,
+                FillColor = vehicle.CssClass switch
+                {
+                    "veh-red" => "#ff6b6b",
+                    "veh-green" => "#5fe37a",
+                    "veh-blue" => "#6ea8fe",
+                    "veh-yellow" => "#ffe066",
+                    _ => "#00ff00"
+                },
+                VehicleIndex = i,
+                Description = $"{vehicle.Type}-{vehicle.Color}"
+            };
+            blocks.Add(startBlock);
         }
     }
 
@@ -853,14 +888,10 @@ private void PlayRandomUnplayed()
     #region Block Programming System
 
     private ElementReference stageRef;
-    private List<Block> blocks = new()
-    {
-        new StartBlock() { Id = 0, X = 40, Y = 40, Locked = true, ParentId = null, FillColor = "#00ff00" },
-        new StartBlock() { Id = 1, X = 200, Y = 40, Locked = true, ParentId = null, FillColor = "#00ff00" }
-    };
+    private List<Block> blocks = new();
 
     private const string PaletteGray = "#DDDDDD";
-    private int nextBlockId = 2;
+    private int nextBlockId = 0;
     private int? activeId = null;
     private bool dragging = false;
     private bool activeWasLockedAtDown = false;
@@ -883,8 +914,17 @@ private void PlayRandomUnplayed()
         activeId = id;
         dragging = true;
 
-        var bottomLockedId = BottomLockedIdExcluding(null);
         var selected = blocks.First(x => x.Id == id);
+
+        // Prevent fixed blocks (start blocks) from being moved
+        if (selected.isFixed)
+        {
+            activeId = null;
+            dragging = false;
+            return;
+        }
+
+        var bottomLockedId = BottomLockedIdExcluding(null);
 
         if (selected.Locked && selected.Id != bottomLockedId)
         {
@@ -898,7 +938,8 @@ private void PlayRandomUnplayed()
         if (selected.Locked)
         {
             var idx = blocks.FindIndex(x => x.Id == id);
-            selected = selected with { Locked = false, FillColor = PaletteGray };
+            // When unlocking a block, clear its vehicle index and parent (will be reassigned when re-attached)
+            selected = selected with { Locked = false, FillColor = PaletteGray, VehicleIndex = null, ParentId = null };
             blocks[idx] = selected;
         }
 
@@ -943,12 +984,24 @@ private void PlayRandomUnplayed()
 
             if (hoverActive)
             {
+                // Find the vehicle index from the parent block
+                int? vehicleIndex = null;
+                if (hoverAnchorId.HasValue)
+                {
+                    var parentBlock = blocks.FirstOrDefault(x => x.Id == hoverAnchorId.Value);
+                    if (parentBlock != null)
+                    {
+                        vehicleIndex = parentBlock.VehicleIndex;
+                    }
+                }
+
                 b = b with
                 {
                     X = hoverX,
                     Y = hoverY,
                     Locked = true,
                     ParentId = hoverAnchorId,
+                    VehicleIndex = vehicleIndex
                 };
 
                 blocks[idx] = b;
@@ -1033,7 +1086,7 @@ private void PlayRandomUnplayed()
             {
                 throw new ArgumentNullException(nameof(action), "Action must be provided for MoveBlock instantiation.");
             }
-            newBlock = new MoveBlock((MoveActionEnum)action) { Id = nextBlockId, X = spawnX, Y = spawnY, Locked = false, ParentId = null };
+            newBlock = new MoveBlock((MoveActionEnum)action) { Id = nextBlockId, X = spawnX, Y = spawnY, Locked = false, ParentId = null, VehicleIndex = null };
         }
         else if (blockToInstantiate == typeof(RotateBlock))
         {
@@ -1041,7 +1094,7 @@ private void PlayRandomUnplayed()
             {
                 throw new ArgumentNullException(nameof(action), "Action must be provided for RotateBlock instantiation.");
             }
-            newBlock = new RotateBlock((RotateActionEnum)action) { Id = nextBlockId, X = spawnX, Y = spawnY, Locked = false, ParentId = null };
+            newBlock = new RotateBlock((RotateActionEnum)action) { Id = nextBlockId, X = spawnX, Y = spawnY, Locked = false, ParentId = null, VehicleIndex = null };
         }
         else
         {
@@ -1062,31 +1115,42 @@ private void PlayRandomUnplayed()
 
     private void RunBlockStacks()
     {
-        if (!HasSelection)
+        BuildBlockStacks();
+
+        int totalBlocks = blockStacks.Sum(s => s.Count - 1); // Exclude start blocks
+        if (totalBlocks == 0)
         {
-            StatusMessage = "No vehicle selected. Click a vehicle first.";
+            StatusMessage = "No blocks to execute. Drag blocks from the left panel to program your vehicles.";
             return;
         }
 
-        BuildBlockStacks();
+        StatusMessage = $"Executing {totalBlocks} blocks...";
 
-        StatusMessage = $"Executing {blockStacks.Sum(s => s.Count - 1)} blocks...";
+        // Execute all stacks in parallel (step by step)
+        int maxStackDepth = blockStacks.Any() ? blockStacks.Max(s => s.Count) : 0;
 
-        for (int i = 0; i < blockStacks.OrderByDescending(list => list.Count).ToList()[0].Count(); i++)
+        for (int i = 0; i < maxStackDepth; i++)
         {
             foreach (var stack in blockStacks)
             {
                 var block = stack.ElementAtOrDefault(i);
-                if (block != null)
+                if (block != null && block.VehicleIndex.HasValue)
                 {
-                    ExecuteBlock(block);
+                    ExecuteBlockOnVehicle(block, block.VehicleIndex.Value);
                 }
             }
         }
     }
 
-    private void ExecuteBlock(Block block)
+    private void ExecuteBlockOnVehicle(Block block, int vehicleIndex)
     {
+        if (vehicleIndex < 0 || vehicleIndex >= Vehicles.Count)
+            return;
+
+        // Temporarily set the selected vehicle for the move operations
+        int? previousSelection = SelectedVehicleIndex;
+        SelectedVehicleIndex = vehicleIndex;
+
         if (block is MoveBlock moveBlock)
         {
             switch (moveBlock.Direction)
@@ -1117,6 +1181,9 @@ private void PlayRandomUnplayed()
                     break;
             }
         }
+
+        // Restore previous selection
+        SelectedVehicleIndex = previousSelection;
     }
 
     private void BuildBlockStacks()
