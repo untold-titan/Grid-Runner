@@ -19,7 +19,7 @@
 
     <div class="controls-group">
         <div class="difficulty-selector">
-            <select @bind="SelectedDifficulty">
+            <select value="@SelectedDifficulty" @onchange="OnDifficultyChanged">
                 <option value="Easy">Easy (4×4)</option>
                 <option value="Medium">Medium (5×5)</option>
                 <option value="Hard">Hard (6×6)</option>
@@ -215,12 +215,15 @@
     };
 
     // Event Handlers - Level Management
-    private void PlayRandomUnplayed()
-    {
-        LevelLoader.PlayRandomUnplayed();
-        BlockExecution.GenerateStartBlocksForVehicles();
-        StatusMessage = LevelLoader.LastStatusMessage;
-    }
+private void PlayRandomUnplayed()
+{
+    BlockExecution.ClearBlocks();
+    VehicleMovement.Reset();
+
+    LevelLoader.PlayRandomUnplayed();
+    BlockExecution.GenerateStartBlocksForVehicles();
+    StatusMessage = LevelLoader.LastStatusMessage;
+}
 
     private void PlayAgain()
     {
@@ -351,73 +354,72 @@
         }
     };
 
-    private RenderFragment RenderVehicleSprites() => builder =>
+private RenderFragment RenderVehicleSprites() => builder =>
+{
+    var (prefix, _, cellSize, _) = GetGridRenderInfo();
+    int seq = 0;
+
+    for (int i = 0; i < Vehicles.Count; i++)
     {
-        var (prefix, _, cellSize, _) = GetGridRenderInfo();
-        int seq = 0;
+        var v = Vehicles[i];
+        if (v.Cells.Count == 0) continue;
 
-        for (int i = 0; i < Vehicles.Count; i++)
-        {
-            var v = Vehicles[i];
-            if (v.Cells.Count == 0) continue;
+        var labels = v.Cells.Select(k => StripPrefix(k, prefix)).ToList();
 
-            var labels = v.Cells.Select(k => StripPrefix(k, prefix)).ToList();
+        var coords = labels.Select(ParseCell).ToList();
+        int minRow = coords.Min(rc => rc.row);
+        int maxRow = coords.Max(rc => rc.row);
+        int minCol = coords.Min(rc => rc.col);
+        int maxCol = coords.Max(rc => rc.col);
 
-            var coords = labels.Select(lbl => ParseCell(lbl)).ToList();
-            int minRow = coords.Min(rc => rc.row);
-            int maxRow = coords.Max(rc => rc.row);
-            int minCol = coords.Min(rc => rc.col);
-            int maxCol = coords.Max(rc => rc.col);
+        int spanCols = maxCol - minCol + 1;
+        int spanRows = maxRow - minRow + 1;
 
-            int angle = GetAngleFromPivotToNext(labels);
+        int angle = GetAngleFromPivotToNext(labels);
 
-            // Calculate absolute position based on cell coordinates
-            // ParseCell returns 1-based rows and 0-based cols
-            // Position relative to grid-container top-left
-            int left = minCol * cellSize;
-            int top = (minRow - 1) * cellSize;  // minRow is 1-based, convert to 0-based
+        int width = spanCols * cellSize;
+        int height = spanRows * cellSize;
 
-            // Calculate actual span in cells
-            int spanCols = maxCol - minCol + 1;
-            int spanRows = maxRow - minRow + 1;
-            int width = spanCols * cellSize;
-            int height = spanRows * cellSize;
+        if (angle == 90 || angle == 270)
+            (width, height) = (height, width);
 
-            string containerStyle =
-                $"position: absolute;" +
-                $"left: {left}px;" +
-                $"top: {top}px;" +
-                $"width: {width}px;" +
-                $"height: {height}px;";
+        double centerX = (minCol + spanCols / 2.0) * cellSize;
+        double centerY = ((minRow - 1) + spanRows / 2.0) * cellSize;
 
-            // Sprite should fill the entire container
-            int innerW = width;
-            int innerH = height;
+        int left = (int)Math.Round(centerX - width / 2.0);
+        int top = (int)Math.Round(centerY - height / 2.0);
 
-            // Center the sprite in the container
-            string imgStyle =
-                $"position:absolute; left:50%; top:50%;" +
-                $"width:{innerW}px; height:{innerH}px;" +
-                $"transform: translate(-50%, -50%) rotate({angle}deg);" +
-                $"transform-origin: center;";
+        string containerStyle =
+            $"position:absolute;" +
+            $"left:{left}px;" +
+            $"top:{top}px;" +
+            $"width:{width}px;" +
+            $"height:{height}px;";
 
-            string classes = "veh-sprite";
-            if (HasSelection && VehicleMovement.SelectedVehicleIndex!.Value == i) classes += " selected";
+        string imgStyle =
+            $"position:absolute; inset:0;" +
+            $"width:100%; height:100%;" +
+            $"object-fit:contain;" +
+            $"transform: rotate({angle}deg);" +
+            $"transform-origin:center;";
 
-            builder.OpenElement(seq++, "div");
-            builder.AddAttribute(seq++, "class", classes);
-            builder.AddAttribute(seq++, "style", containerStyle);
+        string classes = "veh-sprite";
+        if (HasSelection && VehicleMovement.SelectedVehicleIndex!.Value == i) classes += " selected";
 
-            builder.OpenElement(seq++, "img");
-            builder.AddAttribute(seq++, "class", "veh-img");
-            builder.AddAttribute(seq++, "src", GetSpritePath(v));
-            builder.AddAttribute(seq++, "style", imgStyle);
-            builder.AddAttribute(seq++, "draggable", "false");
-            builder.CloseElement();
+        builder.OpenElement(seq++, "div");
+        builder.AddAttribute(seq++, "class", classes);
+        builder.AddAttribute(seq++, "style", containerStyle);
 
-            builder.CloseElement();
-        }
-    };
+        builder.OpenElement(seq++, "img");
+        builder.AddAttribute(seq++, "class", "veh-img");
+        builder.AddAttribute(seq++, "src", GetSpritePath(v));
+        builder.AddAttribute(seq++, "style", imgStyle);
+        builder.AddAttribute(seq++, "draggable", "false");
+        builder.CloseElement();
+
+        builder.CloseElement();
+    }
+};
 
     private static int GetAngleFromPivotToNext(List<string> labels)
     {
@@ -436,6 +438,19 @@
 
         return 0;
     }
+
+    private void OnDifficultyChanged(ChangeEventArgs e)
+{
+    SelectedDifficulty = e.Value?.ToString() ?? "Easy";
+
+    // Clear everything that might reference the old level/vehicle list
+    LevelLoader.ClearLevel();
+    BlockExecution.ClearBlocks();
+    VehicleMovement.Reset();
+
+    StatusMessage = "";
+    StateHasChanged();
+}
 
     private static string GetSpritePath(Vehicle v)
     {
