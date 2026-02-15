@@ -156,6 +156,7 @@
 
         <div class="grid-container @GridCssClass @exitClass" style="@gridStyle">
             @RenderGrid()
+            @RenderVehicleSprites()
         </div>
 
         <div class="execute-section">
@@ -327,9 +328,11 @@
             bool isSelected = HasSelection && hasVehicle && vIndex == VehicleMovement.SelectedVehicleIndex!.Value;
 
             string classes = "cell";
-            if (vehicle != null) classes += " occupied " + vehicle.CssClass;
+            // Don't add colored backgrounds - sprites will show instead
+            if (vehicle != null) classes += " occupied";
             if (isExit && ExitSide.HasValue) classes += " exit exit-" + ExitSide.Value;
-            if (isSelected) classes += " selected";
+            // Don't add selected class to cells - sprites will show selection instead
+            // if (isSelected) classes += " selected";
 
             builder.OpenElement(seq++, "div");
             builder.AddAttribute(seq++, "class", classes);
@@ -347,6 +350,135 @@
             builder.CloseElement();
         }
     };
+
+    private RenderFragment RenderVehicleSprites() => builder =>
+    {
+        var (prefix, _, cellSize, _) = GetGridRenderInfo();
+        int seq = 0;
+
+        for (int i = 0; i < Vehicles.Count; i++)
+        {
+            var v = Vehicles[i];
+            if (v.Cells.Count == 0) continue;
+
+            var labels = v.Cells.Select(k => StripPrefix(k, prefix)).ToList();
+
+            var coords = labels.Select(lbl => ParseCell(lbl)).ToList();
+            int minRow = coords.Min(rc => rc.row);
+            int maxRow = coords.Max(rc => rc.row);
+            int minCol = coords.Min(rc => rc.col);
+            int maxCol = coords.Max(rc => rc.col);
+
+            int angle = GetAngleFromPivotToNext(labels);
+
+            // Calculate absolute position based on cell coordinates
+            // ParseCell returns 1-based rows and 0-based cols
+            // Position relative to grid-container top-left
+            int left = minCol * cellSize;
+            int top = (minRow - 1) * cellSize;  // minRow is 1-based, convert to 0-based
+
+            // Calculate actual span in cells
+            int spanCols = maxCol - minCol + 1;
+            int spanRows = maxRow - minRow + 1;
+            int width = spanCols * cellSize;
+            int height = spanRows * cellSize;
+
+            string containerStyle =
+                $"position: absolute;" +
+                $"left: {left}px;" +
+                $"top: {top}px;" +
+                $"width: {width}px;" +
+                $"height: {height}px;";
+
+            // Sprite should fill the entire container
+            int innerW = width;
+            int innerH = height;
+
+            // Center the sprite in the container
+            string imgStyle =
+                $"position:absolute; left:50%; top:50%;" +
+                $"width:{innerW}px; height:{innerH}px;" +
+                $"transform: translate(-50%, -50%) rotate({angle}deg);" +
+                $"transform-origin: center;";
+
+            string classes = "veh-sprite";
+            if (HasSelection && VehicleMovement.SelectedVehicleIndex!.Value == i) classes += " selected";
+
+            builder.OpenElement(seq++, "div");
+            builder.AddAttribute(seq++, "class", classes);
+            builder.AddAttribute(seq++, "style", containerStyle);
+
+            builder.OpenElement(seq++, "img");
+            builder.AddAttribute(seq++, "class", "veh-img");
+            builder.AddAttribute(seq++, "src", GetSpritePath(v));
+            builder.AddAttribute(seq++, "style", imgStyle);
+            builder.AddAttribute(seq++, "draggable", "false");
+            builder.CloseElement();
+
+            builder.CloseElement();
+        }
+    };
+
+    private static int GetAngleFromPivotToNext(List<string> labels)
+    {
+        if (labels.Count < 2) return 0;
+
+        var (r0, c0) = ParseCell(labels[0]);
+        var (r1, c1) = ParseCell(labels[1]);
+
+        int dr = r1 - r0;
+        int dc = c1 - c0;
+
+        if (dr == 1 && dc == 0) return 0;
+        if (dr == 0 && dc == 1) return 270;
+        if (dr == -1 && dc == 0) return 180;
+        if (dr == 0 && dc == -1) return 90;
+
+        return 0;
+    }
+
+    private static string GetSpritePath(Vehicle v)
+    {
+        if (v.Type == 'P')
+            return "/img/yellow-car.png";
+
+        string color = v.Color switch
+        {
+            'R' => "red",
+            'G' => "green",
+            'B' => "blue",
+            'Y' => "yellow",
+            _ => "red"
+        };
+
+        string kind = v.Type switch
+        {
+            'C' => "car",
+            'B' => "bus",
+            'T' => "truck",
+            _ => "car"
+        };
+
+        return $"/img/{color}-{kind}.png";
+    }
+
+    private static string StripPrefix(string key, string prefix)
+    {
+        if (key.StartsWith(prefix, StringComparison.Ordinal))
+            return key.Substring(prefix.Length);
+        return key;
+    }
+
+    private static (int row, int col) ParseCell(string cell)
+    {
+        cell = cell.Trim().ToUpper();
+        string rowPart = cell[..^1];
+        char colChar = cell[^1];
+
+        if (!int.TryParse(rowPart, out int row)) throw new Exception($"Bad row in cell '{cell}'.");
+        int col = colChar - 'A';
+        return (row, col);
+    }
 }
 <script>
     window.blockDrag = {
@@ -746,7 +878,7 @@
         box-sizing: border-box;
         margin: 1.5rem auto;
         border-radius: 6px;
-        overflow: hidden;
+        overflow: visible;  /* Allow sprites to extend beyond if needed */
     }
 
     .cell {
@@ -775,34 +907,15 @@
         outline-offset: -3px;
     }
 
-    .occupied.veh-red {
-        background: #dc2626;
-        color: white;
-    }
-
-    .occupied.veh-green {
-        background: #059669;
-        color: white;
-    }
-
-    .occupied.veh-blue {
-        background: #2563eb;
-        color: white;
-    }
-
-    .occupied.veh-yellow {
-        background: #d97706;
-        color: white;
+    /* Occupied cells are now transparent to show sprites */
+    .cell.occupied {
+        background: transparent;
+        border-color: #2a2a3e;
     }
 
     .veh-label {
-        position: absolute;
-        bottom: 4px;
-        right: 6px;
-        font-size: 0.65rem;
-        font-weight: 700;
-        opacity: 0.85;
-        pointer-events: none;
+        /* Hidden since we now use sprites */
+        display: none;
     }
 
     .cell.exit.exit-A {
@@ -863,6 +976,30 @@
 
     .grid-container.exit-C::before {
         right: -1.5px;
+    }
+
+    /* Vehicle Sprites */
+    .veh-sprite {
+        z-index: 10;
+        pointer-events: none;
+        cursor: pointer;
+        user-select: none;
+        overflow: visible;
+        background: transparent;
+    }
+
+    .veh-sprite.selected {
+        outline: 4px solid rgba(79, 70, 229, 0.6);
+        outline-offset: -4px;
+    }
+
+    .veh-img {
+        object-fit: contain;
+        image-rendering: pixelated;
+        user-select: none;
+        pointer-events: none;
+        display: block;
+        z-index: 2;
     }
 
     /* Scrollbar Styling */
