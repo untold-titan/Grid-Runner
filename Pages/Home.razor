@@ -1,7 +1,498 @@
 ﻿@page "/"
+@using System.Text
+@using Microsoft.AspNetCore.Components.Forms
 
 <PageTitle>Home</PageTitle>
 
-<h1>Hello, world!</h1>
+<h1>Grid Test (File-driven)</h1>
 
-Welcome to your new app.
+<div class="controls">
+    <label>
+        Difficulty:
+        <select @bind="SelectedDifficulty">
+            <option value="Easy">Easy (4x4)</option>
+            <option value="Medium">Medium (5x5)</option>
+            <option value="Hard">Hard (6x6)</option>
+        </select>
+    </label>
+
+    <label class="file">
+        Load level file (.txt):
+        <InputFile OnChange="OnFileSelected" accept=".txt" />
+    </label>
+
+    <button @onclick="LoadSampleLine">Load Sample Line</button>
+    <button @onclick="ClearLevel">Clear</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(StatusMessage))
+{
+    <div class="status">@StatusMessage</div>
+}
+
+@{
+    // Rendering one grid at a time based on the difficulty chosen.
+    var (prefix, cells, cellSizePx, cols) = GetGridRenderInfo();
+
+    int exitColIndex = GetExitColIndex(prefix);
+
+    // what our grid want it to do. 
+    string gridStyle =
+        $"--cell-size:{cellSizePx}px; --exit-col:{exitColIndex};" +
+        $"display:grid; grid-template-columns:repeat({cols},{cellSizePx}px);" +
+        $"grid-auto-rows:{cellSizePx}px;";
+}
+
+<div class="grid-container @GridCssClass" style="@gridStyle">
+    @RenderGrid()
+</div>
+
+@code {
+    // States
+    private string SelectedDifficulty = "Easy";
+    private string StatusMessage = "";
+    private string? ExitCellKey;
+
+    // Vehicles currently on the grid
+    private readonly List<Vehicle> Vehicles = new();
+
+    // Pre building the grid
+    private readonly List<string> EasyCells = BuildCells(4, 4);   // 1A..4D
+    private readonly List<string> MediumCells = BuildCells(5, 5); // 1A..5E
+    private readonly List<string> HardCells = BuildCells(6, 6);   // 1A..6F
+
+    private string GridCssClass => SelectedDifficulty switch
+    {
+        "Easy" => "easy",
+        "Medium" => "medium",
+        "Hard" => "hard",
+        _ => "easy"
+    };
+
+    // File upload
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024); // 1MB
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            var content = await reader.ReadToEndAsync();
+
+            LoadLevelFromText(content);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"File read error: {ex.Message}";
+        }
+    }
+
+    // Sample loader
+    private void LoadSampleLine()
+    {
+        // Format: EXIT_CELL ; (Type,Color,Start,End) repeated...
+        // Example:
+        //   1C;C,R,2C,2D,B,G,3A,5A,T,Y,4B,4E
+        string sample = "1C;C,R,2C,2D,B,G,3A,5A,T,Y,4B,4E";
+        LoadLevelLine(sample);
+    }
+
+    private void ClearLevel()
+    {
+        Vehicles.Clear();
+        ExitCellKey = null;
+        StatusMessage = "Cleared.";
+    }
+
+    // Parsing: whole text = multiple levels separated by newline.
+    // Loads the FIRST non-empty line as the current level.
+    private void LoadLevelFromText(string text)
+    {
+        var lines = text.Replace("\r\n", "\n").Split('\n')
+                        .Select(l => l.Trim())
+                        .Where(l => !string.IsNullOrWhiteSpace(l))
+                        .ToList();
+
+        if (lines.Count == 0)
+        {
+            StatusMessage = "No level lines found.";
+            return;
+        }
+
+        LoadLevelLine(lines[0]);
+    }
+
+    // Parsing: one line
+    // Line format:
+    //   <exitPart> ; <vehiclesPart>
+    //
+    // exitPart: we accept "1C" OR "EXIT,1C" etc.
+    // vehiclesPart: tokens split by ',' grouped as (Type,Color,Start,End) repeated
+    private void LoadLevelLine(string line)
+    {
+        try
+        {
+            Vehicles.Clear();
+            ExitCellKey = null;
+            StatusMessage = "";
+
+            var parts = line.Split(';', StringSplitOptions.RemoveEmptyEntries)
+                            .Select(p => p.Trim())
+                            .ToArray();
+
+            if (parts.Length < 2)
+            {
+                StatusMessage = "Invalid level line: expected 2 sections separated by ';' (exit;vehicles).";
+                return;
+            }
+
+            var (prefix, validCells, _, _) = GetGridRenderInfo();
+
+            // EXIT
+            string exitCellLabel = ParseExitCellLabel(parts[0]);
+            if (!validCells.Contains(exitCellLabel))
+            {
+                StatusMessage = $"Exit cell '{exitCellLabel}' is not valid for {SelectedDifficulty}.";
+                return;
+            }
+            ExitCellKey = prefix + exitCellLabel;
+
+            // VEHICLES
+            var tokens = parts[1].Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                 .Select(t => t.Trim())
+                                 .ToList();
+
+            if (tokens.Count % 4 != 0)
+            {
+                StatusMessage = $"Vehicle section token count must be multiple of 4 (Type,Color,Start,End). Found {tokens.Count}.";
+                return;
+            }
+
+            // IMPORTANT: each group of 4 tokens becomes one Vehicle.
+            for (int i = 0; i < tokens.Count; i += 4)
+            {
+                char type = ParseType(tokens[i]);
+                char color = ParseColor(tokens[i + 1]);
+                string start = tokens[i + 2].ToUpper();
+                string end = tokens[i + 3].ToUpper();
+
+                if (!validCells.Contains(start) || !validCells.Contains(end))
+                {
+                    StatusMessage = $"Vehicle has invalid start/end cell: {start} -> {end}.";
+                    return;
+                }
+
+                var occupiedLabels = BuildOccupiedCellsFromStartEnd(start, end);
+                if (occupiedLabels == null || occupiedLabels.Count == 0)
+                {
+                    StatusMessage = $"Vehicle start/end must be in same row or same column: {start} -> {end}.";
+                    return;
+                }
+
+                int expectedLen = ExpectedLength(type);
+                if (expectedLen > 0 && occupiedLabels.Count != expectedLen)
+                {
+                    StatusMessage = $"Vehicle {type} expected length {expectedLen} but got {occupiedLabels.Count} from {start}->{end}.";
+                    return;
+                }
+
+                var occupiedKeys = occupiedLabels.Select(lbl => prefix + lbl).ToList();
+
+                // Collision check
+                var allOccupied = Vehicles.SelectMany(v => v.Cells).ToHashSet();
+                if (occupiedKeys.Any(allOccupied.Contains))
+                {
+                    StatusMessage = $"Collision: vehicle {type} overlaps an existing vehicle.";
+                    return;
+                }
+
+                Vehicles.Add(new Vehicle
+                {
+                    Type = type,
+                    Color = color,
+                    CssClass = CssClassForColor(color),
+                    Cells = occupiedKeys
+                });
+            }
+
+            StatusMessage = $"Loaded level: exit={exitCellLabel}, vehicles={Vehicles.Count}.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Parse error: {ex.Message}";
+        }
+    }
+
+    private static string ParseExitCellLabel(string exitPart)
+    {
+        var bits = exitPart.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                           .Select(b => b.Trim())
+                           .ToList();
+        return bits.Count == 0 ? "" : bits[^1].ToUpper();
+    }
+
+    private static char ParseType(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) throw new Exception("Empty vehicle type.");
+        char t = char.ToUpperInvariant(s.Trim()[0]);
+        if (t is not ('C' or 'B' or 'T' or 'P')) throw new Exception($"Unknown vehicle type '{s}'. Use C,B,T,P.");
+        return t;
+    }
+
+    private static char ParseColor(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) throw new Exception("Empty color.");
+        char c = char.ToUpperInvariant(s.Trim()[0]);
+        if (c is not ('R' or 'G' or 'B' or 'Y')) throw new Exception($"Unknown color '{s}'. Use R,G,B,Y.");
+        return c;
+    }
+
+    private static int ExpectedLength(char type) => type switch
+    {
+        'C' => 2,
+        'B' => 3,
+        'T' => 4,
+        'P' => 2,
+        _ => 0
+    };
+
+    // Supports horizontal OR vertical placement inferred from start/end.
+    // Inclusive: 2C->2E occupies 2C,2D,2E
+    // Inclusive: 3A->5A occupies 3A,4A,5A
+    private static List<string>? BuildOccupiedCellsFromStartEnd(string start, string end)
+    {
+        var (sr, sc) = ParseCell(start);
+        var (er, ec) = ParseCell(end);
+
+        // Horizontal
+        if (sr == er && sc != ec)
+        {
+            int step = sc < ec ? 1 : -1;
+            var list = new List<string>();
+            for (int c = sc; c != ec + step; c += step)
+                list.Add(ToCell(sr, c));
+            return list;
+        }
+
+        // Vertical
+        if (sc == ec && sr != er)
+        {
+            int step = sr < er ? 1 : -1;
+            var list = new List<string>();
+            for (int r = sr; r != er + step; r += step)
+                list.Add(ToCell(r, sc));
+            return list;
+        }
+
+        // Same cell
+        if (sr == er && sc == ec)
+        {
+            return new List<string> { start };
+        }
+
+        return null;
+    }
+
+    // Parse "2C" -> (row=2, colIndex=2 where A=0,B=1,C=2)
+    private static (int row, int col) ParseCell(string cell)
+    {
+        cell = cell.Trim().ToUpper();
+        if (cell.Length < 2) throw new Exception($"Bad cell '{cell}'.");
+
+        string rowPart = cell[..^1];
+        char colChar = cell[^1];
+
+        if (!int.TryParse(rowPart, out int row)) throw new Exception($"Bad row in cell '{cell}'.");
+        if (colChar < 'A' || colChar > 'Z') throw new Exception($"Bad column in cell '{cell}'.");
+
+        int col = colChar - 'A';
+        return (row, col);
+    }
+
+    private static string ToCell(int row, int colIndex)
+    {
+        char col = (char)('A' + colIndex);
+        return $"{row}{col}";
+    }
+
+
+    // Rendering helpers
+    private (string Prefix, List<string> Cells, int CellSizePx, int Cols) GetGridRenderInfo()
+    {
+        return SelectedDifficulty switch
+        {
+            "Easy" => ("E-", EasyCells, 75, 4),
+            "Medium" => ("M-", MediumCells, 60, 5),
+            "Hard" => ("H-", HardCells, 50, 6),
+            _ => ("E-", EasyCells, 75, 4)
+        };
+    }
+
+    private int GetExitColIndex(string prefix)
+    {
+        if (ExitCellKey == null) return -1;
+        if (!ExitCellKey.StartsWith(prefix, StringComparison.Ordinal)) return -1;
+
+        string label = ExitCellKey.Substring(prefix.Length); // "1C"
+        try
+        {
+            var (_, col) = ParseCell(label);
+            return col;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    private RenderFragment RenderGrid() => builder =>
+    {
+        var (prefix, cells, _, _) = GetGridRenderInfo();
+        int seq = 0;
+
+        var cellToVehicle = new Dictionary<string, Vehicle>();
+        foreach (var v in Vehicles)
+            foreach (var key in v.Cells)
+                cellToVehicle[key] = v;
+
+        foreach (var cell in cells)
+        {
+            var key = prefix + cell;
+            cellToVehicle.TryGetValue(key, out var vehicle);
+
+            bool isExit = (ExitCellKey == key);
+
+            string classes = "cell";
+            if (vehicle != null) classes += " occupied " + vehicle.CssClass;
+            if (isExit) classes += " exit";
+
+            builder.OpenElement(seq++, "div");
+            builder.AddAttribute(seq++, "class", classes);
+            builder.AddAttribute(seq++, "id", key);
+            builder.AddContent(seq++, cell);
+
+            if (isExit)
+            {
+                builder.OpenElement(seq++, "div");
+                builder.AddAttribute(seq++, "class", "exit-label");
+                builder.AddContent(seq++, "EXIT");
+                builder.CloseElement();
+            }
+
+            if (vehicle != null && vehicle.Cells.Count > 0 && vehicle.Cells[0] == key)
+            {
+                builder.OpenElement(seq++, "div");
+                builder.AddAttribute(seq++, "class", "veh-label");
+                builder.AddContent(seq++, vehicle.Type.ToString());
+                builder.CloseElement();
+            }
+
+            builder.CloseElement();
+        }
+    };
+
+    private static string CssClassForColor(char color) => color switch
+    {
+        'R' => "veh-red",
+        'G' => "veh-green",
+        'B' => "veh-blue",
+        'Y' => "veh-yellow",
+        _ => "veh-red"
+    };
+
+    private static List<string> BuildCells(int rows, int cols)
+    {
+        var list = new List<string>(rows * cols);
+        for (int r = 1; r <= rows; r++)
+        {
+            for (int c = 0; c < cols; c++)
+            {
+                char colLetter = (char)('A' + c);
+                list.Add($"{r}{colLetter}");
+            }
+        }
+        return list;
+    }
+
+    private class Vehicle
+    {
+        public char Type { get; set; }      // C,B,T,P
+        public char Color { get; set; }     // R,G,B,Y
+        public string CssClass { get; set; } = "";
+        public List<string> Cells { get; set; } = new();
+    }
+}
+
+<style>
+    .controls {
+        margin-bottom: 14px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .status {
+        margin-bottom: 10px;
+        font-weight: 600;
+    }
+
+    .grid-container {
+        width: fit-content;
+        position: relative;
+        gap: 0;
+    }
+
+    .cell {
+        border: 1px solid #333;
+        background-color: #a1e9ed;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        position: relative;
+        user-select: none;
+    }
+
+    /* Vehicle colors from file */
+    .occupied.veh-red { background-color: #ff6b6b; }
+    .occupied.veh-green { background-color: #5fe37a; }
+    .occupied.veh-blue { background-color: #6ea8fe; }
+    .occupied.veh-yellow { background-color: #ffe066; }
+
+    .veh-label {
+        position: absolute;
+        bottom: 3px;
+        right: 5px;
+        font-size: 12px;
+        opacity: 0.9;
+        pointer-events: none;
+    }
+
+    .cell.exit {
+        outline: 3px solid #111;
+        outline-offset: -3px;
+    }
+
+    .exit-label {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        font-size: 10px;
+        background: rgba(255,255,255,0.85);
+        padding: 1px 3px;
+        pointer-events: none;
+    }
+
+    .grid-container::before {
+        content: "";
+        position: absolute;
+        top: -1px;
+        left: calc(var(--exit-col) * var(--cell-size));
+        width: var(--cell-size);
+        height: 4px;
+        background: white;
+        pointer-events: none;
+        z-index: 5;
+    }
+</style>
