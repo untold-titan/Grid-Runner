@@ -5,61 +5,97 @@
 
 <h1>Blocks (drag them)</h1>
 
-<div class="stage" @ref="stageRef"
-     @onpointermove="OnStagePointerMove"
-     @onpointerup="OnStagePointerUp"
-     @onpointercancel="OnStagePointerUp">
+<div class="layout">
 
-    <div class="fixed"
-         style="left:@($"{fixedX}px"); top:@($"{fixedY}px");">
-        <svg width="90" height="90" viewBox="0 0 92 92">
-            <path d="
-                M 1 1
-                L 15 1
-                L 15 15
-                L 30 1
-                L 91 1
-                L 91 75
-                L 30 75
-                L 15 91
-                L 15 75
-                L 1 75
-                Z"
-                  fill="#FFA500"
-                  stroke="#000000"
-                  stroke-width="1" />
-        </svg>
+    <div class="panel">
+
+        <div class="panel-block"
+            @onpointerdown="(e) => OnPalettePointerDown(e, 6)">
+            <svg width="90" height="90" viewBox="0 0 92 92">
+                <path d="
+                    M 1 1
+                    L 15 1
+                    L 15 15
+                    L 30 1
+                    L 91 1
+                    L 91 75
+                    L 30 75
+                    L 15 91
+                    L 15 75
+                    L 1 75
+                    Z"
+                    fill="@PaletteGray"
+                    stroke="#000000"
+                    stroke-width="1" />
+            </svg>
+        </div>
+
+        <details class="drop" open>
+            <summary class="drop-title">Move</summary>
+
+            <div class="drop-body">
+                @for (int i = 0; i < 4; i++) {
+                    <div class="panel-block"
+                         @onpointerdown="(e) => OnPalettePointerDown(e, i)">
+                        <svg width="90" height="90" viewBox="0 0 92 92">
+                            <path d="
+                                M 1 1
+                                L 15 1
+                                L 15 15
+                                L 30 1
+                                L 91 1
+                                L 91 75
+                                L 30 75
+                                L 15 91
+                                L 15 75
+                                L 1 75
+                                Z"
+                                fill="@PaletteGray"
+                                stroke="#000000"
+                               stroke-width="1" />
+                        </svg>
+                    </div>
+                }
+            </div>
+        </details>
+
+        <details class="drop" open>
+            <summary class="drop-title">Rotate</summary>
+
+            <div class="drop-body">
+                @for (int i = 0; i < 2; i++) {
+                    <div class="panel-block"
+                         @onpointerdown="(e) => OnPalettePointerDown(e, i + 4)">
+                        <svg width="90" height="90" viewBox="0 0 92 92">
+                            <path d="
+                                M 1 1
+                                L 15 1
+                                L 15 15
+                                L 30 1
+                                L 91 1
+                                L 91 75
+                                L 30 75
+                                L 15 91
+                                L 15 75
+                                L 1 75
+                                Z"
+                                fill="@PaletteGray"
+                                stroke="#000000"
+                                stroke-width="1" />
+                        </svg>
+                    </div>
+                }
+            </div>
+        </details>
     </div>
 
-    @if (hoverActive)
-    {
-        <div class="ghost"
-             style="left:@($"{hoverX}px"); top:@($"{hoverY}px");">
-            <svg width="90" height="90" viewBox="0 0 92 92">
-                <path d="
-                    M 1 1
-                    L 15 1
-                    L 15 15
-                    L 30 1
-                    L 91 1
-                    L 91 75
-                    L 30 75
-                    L 15 91
-                    L 15 75
-                    L 1 75
-                    Z"
-                      fill="transparent"
-                      stroke="#000000"
-                      stroke-width="3" />
-            </svg>
-        </div>
-    }
+    <div class="stage" @ref="stageRef"
+         @onpointermove="OnStagePointerMove"
+         @onpointerup="OnStagePointerUp"
+         @onpointercancel="OnStagePointerUp">
 
-    @foreach (var b in blocks)
-    {
-        <div class="draggable @(b.Locked ? "locked" : "")"
-             style="left:@($"{b.X}px"); top:@($"{b.Y}px");"
-             @onpointerdown="(e) => OnBlockPointerDown(e, b.Id)">
+        <div class="fixed"
+             style="left:@($"{fixedX}px"); top:@($"{fixedY}px");">
             <svg width="90" height="90" viewBox="0 0 92 92">
                 <path d="
                     M 1 1
@@ -73,12 +109,59 @@
                     L 15 75
                     L 1 75
                     Z"
-                      fill="#FFA500"
-                      stroke="#000000"
-                      stroke-width="1" />
+                    fill="@fixedColor"
+                    stroke="#000000"
+                    stroke-width="1" />
             </svg>
         </div>
-    }
+
+        @if (hoverActive) {
+            <div class="ghost"
+                 style="left:@($"{hoverX}px"); top:@($"{hoverY}px");">
+                <svg width="90" height="90" viewBox="0 0 92 92">
+                    <path d="
+                        M 1 1
+                        L 15 1
+                        L 15 15
+                        L 30 1
+                        L 91 1
+                        L 91 75
+                        L 30 75
+                        L 15 91
+                        L 15 75
+                        L 1 75
+                        Z"
+                        fill="transparent"
+                        stroke="#000000"
+                        stroke-width="3" />
+                </svg>
+            </div>
+        }
+
+        @foreach (var b in blocks) {
+            <div class="draggable @(b.Locked ? "locked" : "")"
+                 style="left:@($"{b.X}px"); top:@($"{b.Y}px");"
+                 @onpointerdown="(e) => OnBlockPointerDown(e, b.Id)">
+                <svg width="90" height="90" viewBox="0 0 92 92">
+                    <path d="
+                        M 1 1
+                        L 15 1
+                        L 15 15
+                        L 30 1
+                        L 91 1
+                        L 91 75
+                        L 30 75
+                        L 15 91
+                        L 15 75
+                        L 1 75
+                        Z"
+                        fill="@b.FillColor"
+                        stroke="#000000"
+                        stroke-width="1" />
+                </svg>
+            </div>
+        }
+    </div>
 </div>
 
 <style>
@@ -88,7 +171,43 @@
         border: 1px solid #ccc;
         user-select: none;
         touch-action: none;
-        overflow: hidden;
+        overflow: visible;
+    }
+
+    .layout {
+        display: flex;
+        gap: 12px;
+        height: 70vh;
+    }
+
+    .panel {
+        width: 130px;
+        border: 1px solid #ccc;
+        background: #f7f7f7;
+        padding: 4px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        user-select: none;
+        touch-action: none;
+        height: 70vh;
+        overflow-y: auto;
+    }
+
+    .panel-block {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 6px;
+        border-radius: 8px;
+        cursor: grab;
+        user-select: none;
+    }
+
+    .panel-block:active { cursor: grabbing; }
+
+    .panel-block:active {
+        cursor: grabbing;
     }
 
     .draggable {
@@ -136,11 +255,11 @@
     private double fixedX = 40;
     private double fixedY = 40;
 
-    private List<Block> blocks = new() {
-        new Block(1, 180, 40, false, null),
-        new Block(2, 280, 40, false, null)
-    };
+    private List<Block> blocks = new();
 
+    private string fixedColor = "#FFA500";
+    private const string PaletteGray = "#DDDDDD";
+    private int nextBlockId = 1;
     private int? activeId = null;
     private bool dragging = false;
     private bool activeWasLockedAtDown = false;
@@ -172,7 +291,7 @@
 
         if (selected.Locked) {
            var idx = blocks.FindIndex(x => x.Id == id);
-            selected = selected with { Locked = false };  
+            selected = selected with { Locked = false, FillColor = PaletteGray };
             blocks[idx] = selected;
         }
 
@@ -205,29 +324,27 @@
     }
 
     private void OnStagePointerUp(PointerEventArgs e) {
-
         if (!dragging || activeId is null) return;
 
         var idx = blocks.FindIndex(x => x.Id == activeId.Value);
+
         if (idx >= 0) {
         var b = blocks[idx];
 
-        if (hoverActive) {
+            if (hoverActive) {
+                b = b with {
+                    X = hoverX,
+                    Y = hoverY,
+                    Locked = true,
+                    ParentId = hoverAnchorId,
+                    FillColor = fixedColor
+                };
 
-            b = b with {
-                X = hoverX,
-                Y = hoverY,
-                Locked = true,
-                ParentId = hoverAnchorId
-        };
-        }
-        else {
-
-            if (activeWasLockedAtDown)
-                b = b with { Locked = false, ParentId = null };
+                blocks[idx] = b;
             }
-
-            blocks[idx] = b;
+            else {
+                blocks.RemoveAt(idx);
+            }
         }
 
         dragging = false;
@@ -235,7 +352,7 @@
         hoverActive = false;
         activeWasLockedAtDown = false;
         hoverAnchorId = null;
-    }
+}
 
     private int? hoverAnchorId = null;
 
@@ -286,6 +403,29 @@
         return blocks.Any(b => b.Locked && b.Id != excludeId) ? locked.Id : (int?)null;
     }
 
+    private async Task OnPalettePointerDown(PointerEventArgs e, int paletteIndex) {
+
+        dragging = true;
+        activeWasLockedAtDown = false;
+
+        var stageRect = await JS.InvokeAsync<Rect>("blockDrag.rect", stageRef);
+        stageLeft = stageRect.Left;
+        stageTop = stageRect.Top;
+
+        var spawnX = Math.Round((e.ClientX - stageLeft) - 45);
+        var spawnY = Math.Round((e.ClientY - stageTop) - 45);
+
+        var newBlock = new Block(nextBlockId++, spawnX, spawnY, false, null, PaletteGray);
+        blocks.Add(newBlock);
+
+        activeId = newBlock.Id;
+
+        grabOffsetX = 45;
+        grabOffsetY = 45;
+
+        UpdateHoverPreview(newBlock);
+    }
+
     private record Rect(double Left, double Top);
-    private record struct Block(int Id, double X, double Y, bool Locked, int? ParentId);
+    private record struct Block(int Id, double X, double Y, bool Locked, int? ParentId, string FillColor);
 }
