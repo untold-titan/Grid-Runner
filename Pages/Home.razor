@@ -710,7 +710,34 @@ private RenderFragment RenderVehicleSprites() => builder =>
         int minCol = coords.Min(rc => rc.col);
         int maxCol = coords.Max(rc => rc.col);
 
+        var (pRow, pCol) = ParseCell(labels[0]);
+
+        int pivotX = (pCol - minCol) * cellSize + (cellSize / 2);
+        int pivotY = (pRow - minRow) * cellSize;
+
         int angle = GetAngleFromPivotToNext(labels);
+
+        int offX = 0;
+        int offY = 0;
+
+        switch (angle % 360) {
+            case 90:  // facing right
+                offX = 25;
+                offY = 25;
+                break;
+
+            case 180: // facing down
+                offY = 51;
+                break;
+
+            case 270: // facing left
+                offX = -25;
+                offY = 25;
+                break;
+        }
+
+        pivotX += offX;
+        pivotY += offY;
 
         int gridColStart = minCol + 1;
         int gridColEnd = maxCol + 2;
@@ -726,10 +753,10 @@ private RenderFragment RenderVehicleSprites() => builder =>
         int innerH = len * cellSize;
 
         string imgStyle =
-            $"position:absolute; left:50%; top:50%;" +
+            $"position:absolute; left:{pivotX}px; top:{pivotY}px;" +
             $"width:{innerW}px; height:{innerH}px;" +
-            $"transform: translate(-50%,-50%) rotate({angle}deg);" +
-            $"transform-origin: center center;";
+            $"transform: translate(-50%, 0) rotate({angle}deg);" +
+            $"transform-origin: 50% 0%;";
 
         string classes = "veh-sprite";
         if (HasSelection && SelectedVehicleIndex!.Value == i) classes += " selected";
@@ -744,7 +771,6 @@ builder.AddAttribute(seq++, "class", "veh-img");
 builder.AddAttribute(seq++, "src", GetSpritePath(v));
 builder.AddAttribute(seq++, "style", imgStyle);
 builder.AddAttribute(seq++, "draggable", "false");
-builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create(this, () => SelectVehicleByIndex(i)));
         builder.CloseElement();
 
         builder.CloseElement();
@@ -762,9 +788,9 @@ private static int GetAngleFromPivotToNext(List<string> labels)
     int dc = c1 - c0;
 
     if (dr == 1 && dc == 0) return 0;
-    if (dr == 0 && dc == 1) return 90;
+    if (dr == 0 && dc == 1) return 270;
     if (dr == -1 && dc == 0) return 180;
-    if (dr == 0 && dc == -1) return 270;
+    if (dr == 0 && dc == -1) return 90;
 
     return 0;
 }
@@ -862,12 +888,11 @@ private static int GetAngleFromPivotToNext(List<string> labels)
         user-select: none;
         box-sizing: border-box;
         cursor: pointer;
-        z-index: 1;
     }
 .veh-sprite {
     position: relative;
-    z-index: 5;
-    pointer-events: auto;
+    z-index: 9999;
+    pointer-events: none;
     cursor: pointer;
     user-select: none;
     overflow: visible;
@@ -883,7 +908,7 @@ private static int GetAngleFromPivotToNext(List<string> labels)
     object-fit: contain;
     image-rendering: pixelated;
     user-select: none;
-    pointer-events: auto;
+    pointer-events: none;
     display: block;
     z-index: 2;
 }
