@@ -3,7 +3,7 @@ using GridRunner.Interfaces;
 
 namespace GridRunner.Blocks
 {
-    public class RotateBlock : Block
+    public record class RotateBlock : Block
     {
         public RotateActionEnum Direction { get; set; }
 
