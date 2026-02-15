@@ -9,9 +9,9 @@ namespace GridRunner.Blocks
 
         public MoveBlock(MoveActionEnum direction) : base()
         {
-            Description = "Move " + direction.ToString();
+            Description = direction.ToString();
             Direction = direction;
-            FillColor = "#ff0000";
+            FillColor = "#d1d5db";
         }
 
         public override void RunBlock(string state)

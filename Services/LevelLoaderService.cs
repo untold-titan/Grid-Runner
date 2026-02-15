@@ -65,10 +65,10 @@ namespace GridRunner.Services
         {
             return SelectedDifficulty switch
             {
-                "Easy" => ("E-", EasyCells, 75, 4),
-                "Medium" => ("M-", MediumCells, 60, 5),
-                "Hard" => ("H-", HardCells, 50, 6),
-                _ => ("E-", EasyCells, 75, 4)
+                "Easy" => ("E-", EasyCells, 95, 4),
+                "Medium" => ("M-", MediumCells, 75, 5),
+                "Hard" => ("H-", HardCells, 62, 6),
+                _ => ("E-", EasyCells, 95, 4)
             };
         }
 

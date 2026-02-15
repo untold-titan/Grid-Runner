@@ -60,7 +60,7 @@ namespace GridRunner.Services
                 {
                     Id = nextBlockId++,
                     X = 40 + (i * 120),
-                    Y = 40,
+                    Y = 55,
                     Locked = true,
                     ParentId = null,
                     FillColor = vehicle.CssClass switch
@@ -72,7 +72,7 @@ namespace GridRunner.Services
                         _ => "#00ff00"
                     },
                     VehicleIndex = i,
-                    Description = $"{vehicle.Type}-{vehicle.Color}"
+                    Description = $"START\n{GetColorName(vehicle.Color)}\n{GetTypeName(vehicle.Type)}"
                 };
                 Blocks.Add(startBlock);
             }
@@ -159,12 +159,28 @@ namespace GridRunner.Services
                 if (HoverActive)
                 {
                     int? vehicleIndex = null;
+                    string parentColor = b.FillColor;
+                    string updatedDescription = b.Description;
+
                     if (hoverAnchorId.HasValue)
                     {
                         var parentBlock = Blocks.FirstOrDefault(x => x.Id == hoverAnchorId.Value);
                         if (parentBlock != null)
                         {
                             vehicleIndex = parentBlock.VehicleIndex;
+                            // Get the color from the root (start block) of the chain
+                            var rootBlock = GetRootBlock(parentBlock);
+                            if (rootBlock != null)
+                            {
+                                parentColor = rootBlock.FillColor;
+
+                                // Update description to include vehicle info
+                                if (vehicleIndex.HasValue && vehicleIndex.Value >= 0 && vehicleIndex.Value < _levelLoader.Vehicles.Count)
+                                {
+                                    var vehicle = _levelLoader.Vehicles[vehicleIndex.Value];
+                                    updatedDescription = $"{b.Description}\n{GetColorName(vehicle.Color)}";
+                                }
+                            }
                         }
                     }
 
@@ -174,7 +190,9 @@ namespace GridRunner.Services
                         Y = HoverY,
                         Locked = true,
                         ParentId = hoverAnchorId,
-                        VehicleIndex = vehicleIndex
+                        VehicleIndex = vehicleIndex,
+                        FillColor = parentColor,
+                        Description = updatedDescription
                     };
 
                     Blocks[idx] = b;
@@ -366,6 +384,41 @@ namespace GridRunner.Services
                     }
                 }
             }
+        }
+
+        private Block? GetRootBlock(Block block)
+        {
+            // Traverse up the parent chain to find the root (StartBlock)
+            var current = block;
+            while (current.ParentId.HasValue)
+            {
+                var parent = Blocks.FirstOrDefault(b => b.Id == current.ParentId.Value);
+                if (parent == null) break;
+                current = parent;
+            }
+            return current;
+        }
+
+        private string GetColorName(char color)
+        {
+            return color switch
+            {
+                'R' => "Red",
+                'G' => "Green",
+                'B' => "Blue",
+                'Y' => "Yellow",
+                _ => color.ToString()
+            };
+        }
+
+        private string GetTypeName(char type)
+        {
+            return type switch
+            {
+                'C' => "Car",
+                'T' => "Truck",
+                _ => type.ToString()
+            };
         }
 
         private void UpdateHoverPreview(Block dragged)

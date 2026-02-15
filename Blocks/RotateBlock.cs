@@ -9,9 +9,9 @@ namespace GridRunner.Blocks
 
         public RotateBlock(RotateActionEnum direction) : base()
         {
-            Description = "Rotate " + direction.ToString();
+            Description = direction.ToString() == "Clockwise" ? "CW" : "CCW";
             Direction = direction;
-            FillColor = "#00ff00";
+            FillColor = "#d1d5db";
         }
 
         public override void RunBlock(string state)
